@@ -131,17 +131,20 @@ public:
         policy_ = std::make_unique<OnnxPolicy>(model_path);
         last_action_.resize(NUM_MOTOR, 0.0f);
 
+        // QoS: best-effort + volatile to match Unitree SDK's DDS defaults
+        auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);
+
         // Subscribers
         lowstate_sub_ = this->create_subscription<unitree_hg::msg::LowState>(
-            "lowstate", 1,
+            "lowstate", sensor_qos,
             [this](const unitree_hg::msg::LowState::SharedPtr msg) { LowStateCallback(msg); });
 
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel", 1,
+            "/cmd_vel", sensor_qos,
             [this](const geometry_msgs::msg::Twist::SharedPtr msg) { CmdVelCallback(msg); });
 
         // Publisher
-        lowcmd_pub_ = this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 1);
+        lowcmd_pub_ = this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", sensor_qos);
 
         // 50 Hz: policy inference, updates latest_cmd_
         control_timer_ = this->create_wall_timer(
