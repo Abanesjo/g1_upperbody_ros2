@@ -20,6 +20,7 @@ ament_target_dependencies(g1_rl_deploy_node rclcpp unitree_hg geometry_msgs sens
 target_link_libraries(g1_rl_deploy_node onnxruntime)
 
 install(TARGETS g1_rl_deploy_node DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/joint_command_gui.py RENAME joint_command_gui DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config models DESTINATION share/${PROJECT_NAME})
 
 ament_package()
