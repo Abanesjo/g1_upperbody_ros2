@@ -33,9 +33,15 @@ COPY dependencies/unitree_sdk2_python /tmp/unitree_sdk2_python
 RUN CYCLONEDDS_HOME=/opt/cyclonedds pip3 install /tmp/unitree_sdk2_python && \
     rm -rf /tmp/unitree_sdk2_python
 
+# ONNX Runtime for RL policy inference
+RUN pip3 install onnxruntime
+
+# ONNX Runtime C++ for deploy binary
+COPY dependencies/onnxruntime /opt/onnxruntime
+
 ENV CYCLONEDDS_HOME=/opt/cyclonedds
 ENV CMAKE_PREFIX_PATH=/opt/unitree_robotics:/opt/cyclonedds
-ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib
+ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib:/opt/onnxruntime/lib
 
 # Workspace setup
 WORKDIR /workspace
