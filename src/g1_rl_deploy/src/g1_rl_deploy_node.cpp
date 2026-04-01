@@ -1,6 +1,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -11,11 +12,30 @@
 #include "unitree_hg/msg/low_cmd.hpp"
 #include "unitree_hg/msg/low_state.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 
 #include "g1_rl_deploy/motor_crc_hg.h"
 
 static constexpr int NUM_MOTOR = 29;
-static constexpr int OBS_DIM = 98;
+static constexpr int NUM_UPPER_BODY = 8;
+static constexpr int OBS_DIM = 106;  // 98 base + 8 upper_body_command
+
+// Upper body joint names in observation order
+static const std::array<std::string, NUM_UPPER_BODY> UPPER_BODY_NAMES = {
+    "waist_roll_joint",
+    "waist_pitch_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_elbow_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_elbow_joint",
+};
+
+// Corresponding indices in the 29-DOF motor array
+static constexpr std::array<int, NUM_UPPER_BODY> UPPER_BODY_INDICES = {
+    13, 14, 15, 16, 18, 22, 23, 25
+};
 
 // ---------------------------------------------------------------------------
 // ONNX Policy wrapper
@@ -100,6 +120,9 @@ public:
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z",
             std::vector<double>{-1.0, 1.0});
 
+        this->declare_parameter<std::vector<long int>>("upper_body_joint_indices",
+            std::vector<long int>{13, 14, 15, 16, 18, 22, 23, 25});
+
         this->declare_parameter<std::vector<double>>("kp", std::vector<double>{
             40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
             40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
@@ -147,6 +170,14 @@ public:
         default_pos_ = this->get_parameter("default_joint_pos").as_double_array();
         action_scale_ = this->get_parameter("action_scale").as_double_array();
 
+        // Initialize upper body command defaults from default_joint_pos
+        for (int i = 0; i < NUM_UPPER_BODY; ++i)
+            upper_body_cmd_[i] = static_cast<float>(default_pos_[UPPER_BODY_INDICES[i]]);
+
+        // Build name -> upper body index map for /joint_commands lookup
+        for (int i = 0; i < NUM_UPPER_BODY; ++i)
+            upper_body_name_map_[UPPER_BODY_NAMES[i]] = i;
+
         // Load policy
         RCLCPP_INFO(this->get_logger(), "Loading policy: %s", model_path.c_str());
         policy_ = std::make_unique<OnnxPolicy>(model_path);
@@ -167,6 +198,10 @@ public:
             "/cmd_vel", sensor_qos,
             [this](const geometry_msgs::msg::Twist::SharedPtr msg) { CmdVelCallback(msg); });
 
+        joint_cmd_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
+            "/joint_commands", sensor_qos,
+            [this](const sensor_msgs::msg::JointState::SharedPtr msg) { JointCommandCallback(msg); });
+
         // Publisher
         lowcmd_pub_ = this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", sensor_qos);
 
@@ -179,7 +214,7 @@ public:
             std::chrono::microseconds(static_cast<int>(publish_dt * 1e6)),
             [this] { PublishCmd(); });
 
-        RCLCPP_INFO(this->get_logger(), "Waiting for /lowstate and /cmd_vel...");
+        RCLCPP_INFO(this->get_logger(), "Waiting for /lowstate, /cmd_vel, /joint_commands...");
     }
 
 private:
@@ -187,6 +222,14 @@ private:
         vel_cmd_[0] = std::clamp(static_cast<float>(msg->linear.x), vel_limit_x_[0], vel_limit_x_[1]);
         vel_cmd_[1] = std::clamp(static_cast<float>(msg->linear.y), vel_limit_y_[0], vel_limit_y_[1]);
         vel_cmd_[2] = std::clamp(static_cast<float>(msg->angular.z), vel_limit_z_[0], vel_limit_z_[1]);
+    }
+
+    void JointCommandCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+        for (size_t j = 0; j < msg->name.size() && j < msg->position.size(); ++j) {
+            auto it = upper_body_name_map_.find(msg->name[j]);
+            if (it != upper_body_name_map_.end())
+                upper_body_cmd_[it->second] = static_cast<float>(msg->position[j]);
+        }
     }
 
     void LowStateCallback(const unitree_hg::msg::LowState::SharedPtr msg) {
@@ -238,7 +281,7 @@ private:
                 RCLCPP_INFO(this->get_logger(), "Phase 2: Policy active");
             }
 
-            // Build observation (98 dims)
+            // Build observation (106 dims)
             std::vector<float> obs;
             obs.reserve(OBS_DIM);
 
@@ -281,6 +324,10 @@ private:
             for (int i = 0; i < NUM_MOTOR; ++i)
                 obs.push_back(last_action_[i]);
 
+            // 8. upper_body_command (8)
+            for (int i = 0; i < NUM_UPPER_BODY; ++i)
+                obs.push_back(upper_body_cmd_[i]);
+
             // Infer
             auto raw_action = policy_->infer(obs);
             last_action_ = raw_action;
@@ -292,8 +339,10 @@ private:
 
             static int print_counter = 0;
             if (++print_counter % 250 == 0) {
-                RCLCPP_INFO(this->get_logger(), "t=%.1f cmd_vel=[%.2f,%.2f,%.2f]",
-                            time_, vel_cmd_[0], vel_cmd_[1], vel_cmd_[2]);
+                RCLCPP_INFO(this->get_logger(), "t=%.1f cmd_vel=[%.2f,%.2f,%.2f] ub=[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f]",
+                            time_, vel_cmd_[0], vel_cmd_[1], vel_cmd_[2],
+                            upper_body_cmd_[0], upper_body_cmd_[1], upper_body_cmd_[2], upper_body_cmd_[3],
+                            upper_body_cmd_[4], upper_body_cmd_[5], upper_body_cmd_[6], upper_body_cmd_[7]);
             }
         }
 
@@ -310,6 +359,7 @@ private:
     // ROS2
     rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowstate_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_sub_;
     rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowcmd_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
@@ -322,6 +372,10 @@ private:
     std::vector<double> kp_, kd_, default_pos_, action_scale_;
     double control_dt_, standup_duration_, gait_period_;
     std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;
+
+    // Upper body command
+    std::array<float, NUM_UPPER_BODY> upper_body_cmd_ = {};
+    std::unordered_map<std::string, int> upper_body_name_map_;
 
     // State
     double time_;

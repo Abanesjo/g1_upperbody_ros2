@@ -8,19 +8,27 @@
 #  5  left_ankle_roll        11  right_ankle_roll
 #
 # 12  waist_yaw
-# 13  waist_roll
-# 14  waist_pitch
+# 13  waist_roll            *
+# 14  waist_pitch           *
 #
-# 15  left_shoulder_pitch    22  right_shoulder_pitch
-# 16  left_shoulder_roll     23  right_shoulder_roll
-# 17  left_shoulder_yaw      24  right_shoulder_yaw
-# 18  left_elbow             25  right_elbow
-# 19  left_wrist_roll        26  right_wrist_roll
-# 20  left_wrist_pitch       27  right_wrist_pitch
-# 21  left_wrist_yaw         28  right_wrist_yaw
+# 15  left_shoulder_pitch   *  22  right_shoulder_pitch  *
+# 16  left_shoulder_roll    *  23  right_shoulder_roll   *
+# 17  left_shoulder_yaw        24  right_shoulder_yaw
+# 18  left_elbow            *  25  right_elbow           *
+# 19  left_wrist_roll            26  right_wrist_roll
+# 20  left_wrist_pitch           27  right_wrist_pitch
+# 21  left_wrist_yaw             28  right_wrist_yaw
 #
-# Note: indices 13-14 (waist_roll/pitch) invalid on 23/29-DOF with waist locked
-#       indices 20-21, 27-28 (wrist pitch/yaw) invalid on 23-DOF variant
+# * = upper body controlled joints (8 total)
+#     subscribed via /joint_commands in this order:
+#       [0] waist_roll            (index 13)
+#       [1] waist_pitch           (index 14)
+#       [2] left_shoulder_pitch   (index 15)
+#       [3] left_shoulder_roll    (index 16)
+#       [4] left_elbow            (index 18)
+#       [5] right_shoulder_pitch  (index 22)
+#       [6] right_shoulder_roll   (index 23)
+#       [7] right_elbow           (index 25)
 
 g1_rl_deploy_node:
   ros__parameters:
@@ -32,11 +40,14 @@ g1_rl_deploy_node:
     standup_duration: 3.0   # seconds to interpolate to home pose
     gait_period: 0.6        # phase oscillator period (seconds)
 
-    # Velocity command limits (from deploy.yaml)
+    # Velocity command limits
     cmd_vel_limits:
       lin_vel_x: [-0.5, 1.0]
       lin_vel_y: [-0.5, 0.5]
       ang_vel_z: [-1.0, 1.0]
+
+    # Upper body controlled joint indices (into 29-DOF motor array)
+    upper_body_joint_indices: [13, 14, 15, 16, 18, 22, 23, 25]
 
     # Per-joint stiffness (kp) — 29 DOF
     kp: [40.2, 99.1, 40.2, 99.1, 28.5, 28.5,     # left leg
