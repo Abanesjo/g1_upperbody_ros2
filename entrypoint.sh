@@ -1,23 +1,17 @@
 #!/bin/bash
 source /opt/ros/humble/setup.bash
-cd /workspace
 
-# Prevent colcon from rebuilding dependencies already installed in the image
-touch /workspace/src/unitree_ros2/dependencies/cyclonedds/COLCON_IGNORE
-touch /workspace/src/unitree_ros2/dependencies/unitree_sdk2/COLCON_IGNORE
-touch /workspace/src/unitree_ros2/dependencies/unitree_sdk2_python/COLCON_IGNORE
-touch /workspace/src/unitree_ros2/g1_rl_deploy/COLCON_IGNORE
-
+cd /workspace/ros2_ws
 colcon build --symlink-install --parallel-workers $(( $(nproc) / 2 ))
-source /workspace/install/setup.bash
+source /workspace/ros2_ws/install/setup.bash
 
-echo "source /workspace/install/setup.bash" >> ~/.bashrc
+echo "source /workspace/ros2_ws/install/setup.bash" >> ~/.bashrc
 echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> ~/.bashrc
-echo "export CYCLONEDDS_URI=file:///workspace/src/unitree_ros2/cyclonedds.xml" >> ~/.bashrc
+echo "export CYCLONEDDS_URI=file:///workspace/dependencies/cyclonedds.xml" >> ~/.bashrc
 echo "alias mujoco='export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu'" >> ~/.bashrc
 
 # Build RL deploy binary
-(cd /workspace/src/unitree_ros2/g1_rl_deploy && mkdir -p build && cd build && cmake .. && make -j$(nproc))
+(cd /workspace/ros2_ws/src/g1_rl_deploy && mkdir -p build && cd build && cmake .. && make -j$(nproc))
 
-cd /workspace
+cd /workspace/ros2_ws/src
 exec bash

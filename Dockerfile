@@ -7,44 +7,50 @@ RUN apt install -y \
     ros-humble-rmw-cyclonedds-cpp \
     ros-humble-rosidl-generator-dds-idl \
     ros-humble-rosbag2-cpp \
+    ros-humble-joint-state-publisher \
+    ros-humble-joint-state-publisher-gui \
+    ros-humble-pinocchio \
     libyaml-cpp-dev \
     libeigen3-dev \
     python3-pip \
     libboost-all-dev \
     libspdlog-dev \
-    libfmt-dev
+    libfmt-dev \
+    tmux
 
-# Build & install CycloneDDS from source (needed by unitree_sdk2_python)
-COPY dependencies/cyclonedds /tmp/cyclonedds
-RUN cd /tmp/cyclonedds && mkdir build && cd build && \
-    cmake .. -DCMAKE_INSTALL_PREFIX=/opt/cyclonedds -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF && \
-    cmake --build . --parallel $(nproc) --target install && \
-    rm -rf /tmp/cyclonedds
-
-# Build & install unitree_sdk2 (C++ SDK)
-COPY dependencies/unitree_sdk2 /tmp/unitree_sdk2
-RUN cd /tmp/unitree_sdk2 && mkdir build && cd build && \
-    cmake .. -DCMAKE_INSTALL_PREFIX=/opt/unitree_robotics -DBUILD_EXAMPLES=OFF && \
-    cmake --build . --parallel $(nproc) --target install && \
-    rm -rf /tmp/unitree_sdk2
-
-# Install unitree_sdk2_python
-COPY dependencies/unitree_sdk2_python /tmp/unitree_sdk2_python
-RUN CYCLONEDDS_HOME=/opt/cyclonedds pip3 install /tmp/unitree_sdk2_python && \
-    rm -rf /tmp/unitree_sdk2_python
-
-# ONNX Runtime for RL policy inference
+RUN pip3 install numpy==1.26.4 scipy==1.13.1 opencv-contrib-python==4.7.0.72
+RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+RUN pip3 install osqp "jax[cuda12]"
 RUN pip3 install onnxruntime
 
-# ONNX Runtime C++ for deploy binary
-COPY dependencies/onnxruntime /opt/onnxruntime
+COPY dependencies /workspace/dependencies
 
-ENV CYCLONEDDS_HOME=/opt/cyclonedds
-ENV CMAKE_PREFIX_PATH=/opt/unitree_robotics:/opt/cyclonedds
-ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib:/opt/onnxruntime/lib
+#CycloneDDS
+RUN cd /workspace/dependencies/cyclonedds && mkdir build && cd build && \
+    cmake .. && make -j$(($(nproc) / 2)) && make install && ldconfig
+
+#unitree_sdk2
+RUN cd /workspace/dependencies/unitree_sdk2 && mkdir build && cd build && \
+    cmake .. && make -j$(($(nproc) / 2)) && make install && ldconfig
+
+#unitree_sdk2_python
+# RUN CYCLONEDDS_HOME=/usr/local pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
+RUN CYCLONEDDS_HOME=/opt/ros/humble pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
+
+#Onnx Runtime C++
+COPY dependencies/onnxruntime/lib/ /usr/local/lib/
+COPY dependencies/onnxruntime/include/ /usr/local/include/
+RUN ln -sf /usr/local/lib/libonnxruntime.so.1.22.0 /usr/local/lib/libonnxruntime.so && ldconfig
+
+RUN mkdir -p /workspace/ros2_ws/src
+
+WORKDIR /workspace/ros2_ws
+
+# ENV CMAKE_PREFIX_PATH=/opt/unitree_robotics:/opt/cyclonedds
+# ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib:/opt/onnxruntime/lib
 
 # Workspace setup
-WORKDIR /workspace
+WORKDIR /workspace/ros2_ws
 
 SHELL ["/bin/bash", "-c"]
 
