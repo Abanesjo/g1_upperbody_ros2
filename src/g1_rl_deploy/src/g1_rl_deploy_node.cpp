@@ -133,15 +133,15 @@ public:
 
         // Subscribers
         lowstate_sub_ = this->create_subscription<unitree_hg::msg::LowState>(
-            "lowstate", 10,
+            "lowstate", 1,
             [this](const unitree_hg::msg::LowState::SharedPtr msg) { LowStateCallback(msg); });
 
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel", 10,
+            "/cmd_vel", 1,
             [this](const geometry_msgs::msg::Twist::SharedPtr msg) { CmdVelCallback(msg); });
 
         // Publisher
-        lowcmd_pub_ = this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 10);
+        lowcmd_pub_ = this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 1);
 
         // 50 Hz: policy inference, updates latest_cmd_
         control_timer_ = this->create_wall_timer(
