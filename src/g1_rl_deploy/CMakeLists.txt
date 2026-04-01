@@ -21,6 +21,7 @@ target_link_libraries(g1_rl_deploy_node onnxruntime)
 
 install(TARGETS g1_rl_deploy_node DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/joint_command_gui.py RENAME joint_command_gui DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch config models DESTINATION share/${PROJECT_NAME})
+install(PROGRAMS scripts/motion_playback.py RENAME motion_playback DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch config models motions DESTINATION share/${PROJECT_NAME})
 
 ament_package()
