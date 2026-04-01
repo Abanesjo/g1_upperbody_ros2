@@ -10,8 +10,6 @@ echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> ~/.bashrc
 echo "export CYCLONEDDS_URI=file:///workspace/dependencies/cyclonedds.xml" >> ~/.bashrc
 echo "alias mujoco='export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu'" >> ~/.bashrc
 
-# Build RL deploy binary
-(cd /workspace/ros2_ws/src/g1_rl_deploy && mkdir -p build && cd build && cmake .. && make -j$(nproc))
 
 cd /workspace/ros2_ws/src
 exec bash

@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>g1_rl_deploy</name>
+  <version>0.0.1</version>
+  <description>RL locomotion policy deployment for Unitree G1</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>unitree_hg</depend>
+  <depend>geometry_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

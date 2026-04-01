@@ -1,0 +1,9 @@
+<launch>
+  <arg name="model_path" default="/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/policy.onnx"/>
+  <arg name="network_interface" default="lo"/>
+
+  <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
+    <param name="model_path" value="$(var model_path)"/>
+    <param name="network_interface" value="$(var network_interface)"/>
+  </node>
+</launch>

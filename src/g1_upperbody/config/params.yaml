@@ -1,5 +1,0 @@
-g1_upperbody_node:
-  ros__parameters:
-    policy_path: ""
-    dt: 0.02
-    phase_period: 0.6
