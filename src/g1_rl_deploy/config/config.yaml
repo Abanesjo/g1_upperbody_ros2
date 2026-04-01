@@ -1,0 +1,67 @@
+# G1 Joint Index Map (motor_state[i] / motor_cmd[i] in LowState/LowCmd)
+#
+#  0  left_hip_pitch          6  right_hip_pitch
+#  1  left_hip_roll           7  right_hip_roll
+#  2  left_hip_yaw            8  right_hip_yaw
+#  3  left_knee               9  right_knee
+#  4  left_ankle_pitch       10  right_ankle_pitch
+#  5  left_ankle_roll        11  right_ankle_roll
+#
+# 12  waist_yaw
+# 13  waist_roll
+# 14  waist_pitch
+#
+# 15  left_shoulder_pitch    22  right_shoulder_pitch
+# 16  left_shoulder_roll     23  right_shoulder_roll
+# 17  left_shoulder_yaw      24  right_shoulder_yaw
+# 18  left_elbow             25  right_elbow
+# 19  left_wrist_roll        26  right_wrist_roll
+# 20  left_wrist_pitch       27  right_wrist_pitch
+# 21  left_wrist_yaw         28  right_wrist_yaw
+#
+# Note: indices 13-14 (waist_roll/pitch) invalid on 23/29-DOF with waist locked
+#       indices 20-21, 27-28 (wrist pitch/yaw) invalid on 23-DOF variant
+
+g1_rl_deploy_node:
+  ros__parameters:
+    model_path: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/policy.onnx
+
+    # Timing
+    control_dt: 0.02        # 50 Hz policy inference
+    publish_dt: 0.002       # 500 Hz command republish
+    standup_duration: 3.0   # seconds to interpolate to home pose
+    gait_period: 0.6        # phase oscillator period (seconds)
+
+    # Velocity command limits (from deploy.yaml)
+    cmd_vel_limits:
+      lin_vel_x: [-0.5, 1.0]
+      lin_vel_y: [-0.5, 0.5]
+      ang_vel_z: [-1.0, 1.0]
+
+    # Per-joint stiffness (kp) — 29 DOF
+    kp: [40.2, 99.1, 40.2, 99.1, 28.5, 28.5,     # left leg
+         40.2, 99.1, 40.2, 99.1, 28.5, 28.5,      # right leg
+         40.2, 28.5, 28.5,                          # waist
+         14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8, # left arm
+         14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8] # right arm
+
+    # Per-joint damping (kd) — 29 DOF
+    kd: [2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
+         2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
+         2.6, 1.8, 1.8,
+         0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1,
+         0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1]
+
+    # Default joint positions (home pose / action offset) — 29 DOF
+    default_joint_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,     # left leg
+                        -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,      # right leg
+                         0.0, 0.0, 0.0,                        # waist
+                         0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0, # left arm
+                         0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0] # right arm
+
+    # Per-joint action scale — 29 DOF
+    action_scale: [0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
+                   0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
+                   0.35, 0.44, 0.44,
+                   0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07,
+                   0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07]

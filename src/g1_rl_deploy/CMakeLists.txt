@@ -19,6 +19,6 @@ ament_target_dependencies(g1_rl_deploy_node rclcpp unitree_hg geometry_msgs)
 target_link_libraries(g1_rl_deploy_node onnxruntime)
 
 install(TARGETS g1_rl_deploy_node DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch models DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch config models DESTINATION share/${PROJECT_NAME})
 
 ament_package()

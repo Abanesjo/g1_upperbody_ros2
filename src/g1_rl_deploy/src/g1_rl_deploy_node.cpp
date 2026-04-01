@@ -14,46 +14,8 @@
 
 #include "g1_rl_deploy/motor_crc_hg.h"
 
-// ---------------------------------------------------------------------------
-// Constants from deploy.yaml (Unitree-G1-Flat velocity policy)
-// ---------------------------------------------------------------------------
 static constexpr int NUM_MOTOR = 29;
 static constexpr int OBS_DIM = 98;
-static constexpr float STEP_DT = 0.02f;        // 50 Hz policy
-static constexpr float STANDUP_DURATION = 3.0f;
-static constexpr float GAIT_PERIOD = 0.6f;
-
-static constexpr std::array<float, NUM_MOTOR> KP = {
-    40.2f, 99.1f, 40.2f, 99.1f, 28.5f, 28.5f,
-    40.2f, 99.1f, 40.2f, 99.1f, 28.5f, 28.5f,
-    40.2f, 28.5f, 28.5f,
-    14.3f, 14.3f, 14.3f, 14.3f, 14.3f, 16.8f, 16.8f,
-    14.3f, 14.3f, 14.3f, 14.3f, 14.3f, 16.8f, 16.8f
-};
-
-static constexpr std::array<float, NUM_MOTOR> KD = {
-    2.6f, 6.3f, 2.6f, 6.3f, 1.8f, 1.8f,
-    2.6f, 6.3f, 2.6f, 6.3f, 1.8f, 1.8f,
-    2.6f, 1.8f, 1.8f,
-    0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 1.1f, 1.1f,
-    0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 1.1f, 1.1f
-};
-
-static constexpr std::array<float, NUM_MOTOR> DEFAULT_POS = {
-    -0.1f, 0.0f, 0.0f, 0.3f, -0.2f, 0.0f,
-    -0.1f, 0.0f, 0.0f, 0.3f, -0.2f, 0.0f,
-     0.0f, 0.0f, 0.0f,
-     0.35f, 0.18f, 0.0f, 0.87f, 0.0f, 0.0f, 0.0f,
-     0.35f,-0.18f, 0.0f, 0.87f, 0.0f, 0.0f, 0.0f
-};
-
-static constexpr std::array<float, NUM_MOTOR> ACTION_SCALE = {
-    0.55f, 0.35f, 0.55f, 0.35f, 0.44f, 0.44f,
-    0.55f, 0.35f, 0.55f, 0.35f, 0.44f, 0.44f,
-    0.35f, 0.44f, 0.44f,
-    0.44f, 0.44f, 0.44f, 0.44f, 0.44f, 0.07f, 0.07f,
-    0.44f, 0.44f, 0.44f, 0.44f, 0.44f, 0.07f, 0.07f
-};
 
 // ---------------------------------------------------------------------------
 // ONNX Policy wrapper
@@ -123,13 +85,75 @@ public:
     G1RLDeployNode() : Node("g1_rl_deploy_node"), time_(0.0), global_phase_(0.0f),
                        running_policy_(false), mode_machine_(0), state_received_(false) {
 
+        // Declare and load parameters
         this->declare_parameter<std::string>("model_path",
             "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/policy.onnx");
+        this->declare_parameter<double>("control_dt", 0.02);
+        this->declare_parameter<double>("publish_dt", 0.002);
+        this->declare_parameter<double>("standup_duration", 3.0);
+        this->declare_parameter<double>("gait_period", 0.6);
 
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x",
+            std::vector<double>{-0.5, 1.0});
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y",
+            std::vector<double>{-0.5, 0.5});
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z",
+            std::vector<double>{-1.0, 1.0});
+
+        this->declare_parameter<std::vector<double>>("kp", std::vector<double>{
+            40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
+            40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
+            40.2, 28.5, 28.5,
+            14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8,
+            14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8});
+
+        this->declare_parameter<std::vector<double>>("kd", std::vector<double>{
+            2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
+            2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
+            2.6, 1.8, 1.8,
+            0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1,
+            0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1});
+
+        this->declare_parameter<std::vector<double>>("default_joint_pos", std::vector<double>{
+            -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+            -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+             0.0, 0.0, 0.0,
+             0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
+             0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0});
+
+        this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>{
+            0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
+            0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
+            0.35, 0.44, 0.44,
+            0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07,
+            0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07});
+
+        // Read parameters
         std::string model_path = this->get_parameter("model_path").as_string();
+        control_dt_ = this->get_parameter("control_dt").as_double();
+        double publish_dt = this->get_parameter("publish_dt").as_double();
+        standup_duration_ = this->get_parameter("standup_duration").as_double();
+        gait_period_ = this->get_parameter("gait_period").as_double();
+
+        auto lim_x = this->get_parameter("cmd_vel_limits.lin_vel_x").as_double_array();
+        auto lim_y = this->get_parameter("cmd_vel_limits.lin_vel_y").as_double_array();
+        auto lim_z = this->get_parameter("cmd_vel_limits.ang_vel_z").as_double_array();
+        vel_limit_x_ = {static_cast<float>(lim_x[0]), static_cast<float>(lim_x[1])};
+        vel_limit_y_ = {static_cast<float>(lim_y[0]), static_cast<float>(lim_y[1])};
+        vel_limit_z_ = {static_cast<float>(lim_z[0]), static_cast<float>(lim_z[1])};
+
+        kp_ = this->get_parameter("kp").as_double_array();
+        kd_ = this->get_parameter("kd").as_double_array();
+        default_pos_ = this->get_parameter("default_joint_pos").as_double_array();
+        action_scale_ = this->get_parameter("action_scale").as_double_array();
+
+        // Load policy
         RCLCPP_INFO(this->get_logger(), "Loading policy: %s", model_path.c_str());
         policy_ = std::make_unique<OnnxPolicy>(model_path);
         last_action_.resize(NUM_MOTOR, 0.0f);
+
+        RCLCPP_INFO(this->get_logger(), "control_dt=%.3f  publish_dt=%.3f  standup=%.1fs  gait_period=%.2fs",
+                     control_dt_, publish_dt, standup_duration_, gait_period_);
 
         // QoS: best-effort + volatile to match Unitree SDK's DDS defaults
         auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);
@@ -146,14 +170,13 @@ public:
         // Publisher
         lowcmd_pub_ = this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", sensor_qos);
 
-        // 50 Hz: policy inference, updates latest_cmd_
+        // Timers
         control_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(20),
+            std::chrono::microseconds(static_cast<int>(control_dt_ * 1e6)),
             [this] { Control(); });
 
-        // 500 Hz: republish latest command for stable PD control
         publish_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(2),
+            std::chrono::microseconds(static_cast<int>(publish_dt * 1e6)),
             [this] { PublishCmd(); });
 
         RCLCPP_INFO(this->get_logger(), "Waiting for /lowstate and /cmd_vel...");
@@ -161,9 +184,9 @@ public:
 
 private:
     void CmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-        vel_cmd_[0] = std::clamp(static_cast<float>(msg->linear.x), -0.5f, 1.0f);
-        vel_cmd_[1] = std::clamp(static_cast<float>(msg->linear.y), -0.5f, 0.5f);
-        vel_cmd_[2] = std::clamp(static_cast<float>(msg->angular.z), -1.0f, 1.0f);
+        vel_cmd_[0] = std::clamp(static_cast<float>(msg->linear.x), vel_limit_x_[0], vel_limit_x_[1]);
+        vel_cmd_[1] = std::clamp(static_cast<float>(msg->linear.y), vel_limit_y_[0], vel_limit_y_[1]);
+        vel_cmd_[2] = std::clamp(static_cast<float>(msg->angular.z), vel_limit_z_[0], vel_limit_z_[1]);
     }
 
     void LowStateCallback(const unitree_hg::msg::LowState::SharedPtr msg) {
@@ -189,23 +212,23 @@ private:
 
         for (int i = 0; i < NUM_MOTOR; ++i) {
             cmd.motor_cmd[i].mode = 1;
-            cmd.motor_cmd[i].kp = KP[i];
-            cmd.motor_cmd[i].kd = KD[i];
+            cmd.motor_cmd[i].kp = static_cast<float>(kp_[i]);
+            cmd.motor_cmd[i].kd = static_cast<float>(kd_[i]);
             cmd.motor_cmd[i].tau = 0.0f;
             cmd.motor_cmd[i].dq = 0.0f;
         }
 
-        time_ += STEP_DT;
+        time_ += control_dt_;
 
-        if (time_ < STANDUP_DURATION) {
-            float ratio = std::clamp(static_cast<float>(time_ / STANDUP_DURATION), 0.0f, 1.0f);
+        if (time_ < standup_duration_) {
+            float ratio = std::clamp(static_cast<float>(time_ / standup_duration_), 0.0f, 1.0f);
             for (int i = 0; i < NUM_MOTOR; ++i)
-                cmd.motor_cmd[i].q = (1.0f - ratio) * motor_q_[i] + ratio * DEFAULT_POS[i];
+                cmd.motor_cmd[i].q = (1.0f - ratio) * motor_q_[i] + ratio * static_cast<float>(default_pos_[i]);
 
             if (!running_policy_) {
                 static bool printed = false;
                 if (!printed) {
-                    RCLCPP_INFO(this->get_logger(), "Phase 1: Standing up (%.0fs)...", STANDUP_DURATION);
+                    RCLCPP_INFO(this->get_logger(), "Phase 1: Standing up (%.0fs)...", standup_duration_);
                     printed = true;
                 }
             }
@@ -235,7 +258,7 @@ private:
                 obs.push_back(vel_cmd_[i]);
 
             // 4. gait_phase (2)
-            global_phase_ += STEP_DT / GAIT_PERIOD;
+            global_phase_ += static_cast<float>(control_dt_ / gait_period_);
             global_phase_ = std::fmod(global_phase_, 1.0f);
             float cmd_norm = std::sqrt(vel_cmd_[0]*vel_cmd_[0] + vel_cmd_[1]*vel_cmd_[1] + vel_cmd_[2]*vel_cmd_[2]);
             if (cmd_norm < 0.1f) {
@@ -248,7 +271,7 @@ private:
 
             // 5. joint_pos_rel (29)
             for (int i = 0; i < NUM_MOTOR; ++i)
-                obs.push_back(motor_q_[i] - DEFAULT_POS[i]);
+                obs.push_back(motor_q_[i] - static_cast<float>(default_pos_[i]));
 
             // 6. joint_vel_rel (29)
             for (int i = 0; i < NUM_MOTOR; ++i)
@@ -264,7 +287,8 @@ private:
 
             // target_q = raw * scale + offset
             for (int i = 0; i < NUM_MOTOR; ++i)
-                cmd.motor_cmd[i].q = raw_action[i] * ACTION_SCALE[i] + DEFAULT_POS[i];
+                cmd.motor_cmd[i].q = raw_action[i] * static_cast<float>(action_scale_[i])
+                                   + static_cast<float>(default_pos_[i]);
 
             static int print_counter = 0;
             if (++print_counter % 250 == 0) {
@@ -293,6 +317,11 @@ private:
     // Policy
     std::unique_ptr<OnnxPolicy> policy_;
     std::vector<float> last_action_;
+
+    // Parameters
+    std::vector<double> kp_, kd_, default_pos_, action_scale_;
+    double control_dt_, standup_duration_, gait_period_;
+    std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;
 
     // State
     double time_;
