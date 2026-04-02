@@ -1,6 +1,9 @@
 #!/bin/bash
 source /opt/ros/humble/setup.bash
 
+# Install dpax (JAX-based differentiable proximity for CBF)
+pip3 install -e /workspace/dependencies/dpax 2>/dev/null
+
 cd /workspace/ros2_ws
 colcon build --symlink-install --parallel-workers $(( $(nproc) / 2 ))
 source /workspace/ros2_ws/install/setup.bash

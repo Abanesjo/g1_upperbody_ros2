@@ -1,0 +1,24 @@
+g1_cbf_node:
+  ros__parameters:
+    use_gpu: false
+    
+    dt: 0.01
+    collision_geometry: "spheres" #'capsules', 'boxes', or 'spheres'
+
+    #sphere decomposition params (only used when collision_geometry: "spheres")
+    sphere_interpolation_level: 1  # int, N extra spheres between each adjacent base pair
+    sphere_radius_gain: 1.0        # float, scales all sphere radii
+    
+    #capsule margin
+    margin_phi: 0.001 #[m^2], related to minimum squared distance
+
+    #box margin (capsule/box don't use same method, so scales not the same)
+    beta: 1.05 #[scalar] related to minimum scaling factor
+
+    #cbf constant
+    gamma: 5.0
+
+    #speed gain
+    K: 20.0
+    max_velocity: 5.0
+    lpf_gain: 0.0

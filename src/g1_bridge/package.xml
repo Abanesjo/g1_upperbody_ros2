@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>g1_bridge</name>
+  <version>0.0.1</version>
+  <description>Bridge between Unitree G1 lowstate/lowcmd and standard ROS2 joint_states/joint_commands</description>
+  <maintainer email="todo@todo.com">todo</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>unitree_hg</depend>
+
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>g1_description</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

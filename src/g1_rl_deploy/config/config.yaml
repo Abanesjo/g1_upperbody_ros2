@@ -36,7 +36,6 @@ g1_rl_deploy_node:
 
     # Timing
     control_dt: 0.02        # 50 Hz policy inference
-    publish_dt: 0.002       # 500 Hz command republish
     standup_duration: 3.0   # seconds to interpolate to home pose
     gait_period: 0.6        # phase oscillator period (seconds)
 
@@ -45,23 +44,6 @@ g1_rl_deploy_node:
       lin_vel_x: [-0.5, 1.0]
       lin_vel_y: [-0.5, 0.5]
       ang_vel_z: [-1.0, 1.0]
-
-    # Upper body controlled joint indices (into 29-DOF motor array)
-    upper_body_joint_indices: [13, 14, 15, 16, 18, 22, 23, 25]
-
-    # Per-joint stiffness (kp) — 29 DOF
-    kp: [40.2, 99.1, 40.2, 99.1, 28.5, 28.5,     # left leg
-         40.2, 99.1, 40.2, 99.1, 28.5, 28.5,      # right leg
-         40.2, 28.5, 28.5,                          # waist
-         14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8, # left arm
-         14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8] # right arm
-
-    # Per-joint damping (kd) — 29 DOF
-    kd: [2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
-         2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
-         2.6, 1.8, 1.8,
-         0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1,
-         0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1]
 
     # Default joint positions (home pose / action offset) — 29 DOF
     default_joint_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,     # left leg
