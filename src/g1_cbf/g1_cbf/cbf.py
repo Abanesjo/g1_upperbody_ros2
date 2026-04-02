@@ -166,12 +166,22 @@ class SphereCBF:
         c2_np = np.asarray(c2)
 
         n1, n2 = phis_np.shape
+        diffs_np = np.asarray(diffs)
         constraints = []
         closest_points = []
         for i in range(n1):
             for j in range(n2):
                 constraints.append((dphi_np[i, j], b_np[i, j]))
-                closest_points.append((c1_np[i], c2_np[j]))
+                # Surface closest points: offset centers by radius along the line
+                d = diffs_np[i, j]  # c1 - c2
+                dist = np.linalg.norm(d)
+                if dist > 1e-8:
+                    direction = d / dist
+                    p1 = c1_np[i] - R1 * direction
+                    p2 = c2_np[j] + R2 * direction
+                else:
+                    p1, p2 = c1_np[i], c2_np[j]
+                closest_points.append((p1, p2))
 
         return constraints, closest_points
 
