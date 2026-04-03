@@ -5,8 +5,6 @@
   <arg name="bridge" default="true"/>
 
   <!-- ==================== g1_bridge ==================== -->
-  <!-- /lowstate → /joint_states + /imu (feedback) -->
-  <!-- /joint_commands → /lowcmd (500 Hz republish, per-joint kp/kd, CRC) -->
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
   </node>
@@ -21,7 +19,6 @@
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
 
   <!-- ==================== g1_cbf ==================== -->
-  <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="urdf_path" value="$(var urdf_file)"/>
@@ -29,7 +26,6 @@
     <remap from="/joint_commands" to="/upper_body_targets"/>
   </node>
 
-  <!-- Ghost robot visualization (shows unfiltered upper body commands) -->
   <group if="$(var ghost)">
     <node pkg="g1_cbf" exec="ghost_publisher_node" name="ghost_publisher_node" output="screen">
       <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
@@ -42,18 +38,15 @@
   </group>
 
   <!-- ==================== joint_merger ==================== -->
-  <!-- Merges /upper_body_targets + /lower_body_commands + defaults → /joint_commands (500 Hz) -->
   <node pkg="g1_rl_deploy" exec="joint_merger" name="joint_merger" output="screen"/>
 
   <!-- ==================== g1_rl_deploy ==================== -->
-  <!-- Lower body policy: /cmd_vel + /joint_states + /imu → /lower_body_commands (12 leg joints) -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
   </node>
 
-  <!-- ==================== motion_playback ==================== -->
-  <!-- Dance motion CSV → /upper_body_targets_unsafe (CBF filters before merger) -->
-  <node pkg="g1_rl_deploy" exec="motion_playback" name="motion_playback" output="screen">
+  <!-- ==================== GUI sliders ==================== -->
+  <node pkg="g1_rl_deploy" exec="joint_command_gui" name="joint_command_gui" output="screen">
     <remap from="/joint_commands" to="/upper_body_targets_unsafe"/>
   </node>
 </launch>

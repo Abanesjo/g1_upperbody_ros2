@@ -1,7 +1,6 @@
 #include <array>
 #include <cmath>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -10,14 +9,14 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "sensor_msgs/msg/imu.hpp"
 #include "geometry_msgs/msg/twist.hpp"
-#include "unitree_hg/msg/low_state.hpp"
 
 static constexpr int NUM_MOTOR = 29;
-static constexpr int NUM_UPPER_BODY = 8;
-static constexpr int OBS_DIM = 106;
+static constexpr int NUM_LOWER_BODY = 12;  // legs only (indices 0-11)
+static constexpr int OBS_DIM = 81;  // 3+3+3+2+29+29+12
 
-// Joint names in motor index order (0-28)
+// All 29 joint names in motor index order
 static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
     "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
     "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
@@ -30,14 +29,12 @@ static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
     "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
 };
 
-static const std::array<std::string, NUM_UPPER_BODY> UPPER_BODY_NAMES = {
-    "waist_roll_joint", "waist_pitch_joint",
-    "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_elbow_joint",
-    "right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_elbow_joint",
-};
-
-static constexpr std::array<int, NUM_UPPER_BODY> UPPER_BODY_INDICES = {
-    13, 14, 15, 16, 18, 22, 23, 25
+// Lower body joint names (policy output order, indices 0-11)
+static const std::array<std::string, NUM_LOWER_BODY> LOWER_BODY_NAMES = {
+    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
+    "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
+    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
+    "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
 };
 
 // ---------------------------------------------------------------------------
@@ -98,7 +95,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// ROS2 Node
+// ROS2 Node — Lower Body RL Policy Deploy
 // ---------------------------------------------------------------------------
 class G1RLDeployNode : public rclcpp::Node {
 public:
@@ -118,10 +115,10 @@ public:
             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
              0.0, 0.0, 0.0, 0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
              0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0});
+        // Action scale for 12 lower body joints only
         this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>{
-            0.55, 0.35, 0.55, 0.35, 0.44, 0.44, 0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
-            0.35, 0.44, 0.44, 0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07,
-            0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07});
+            0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
+            0.55, 0.35, 0.55, 0.35, 0.44, 0.44});
 
         // Read parameters
         std::string model_path = this->get_parameter("model_path").as_string();
@@ -138,47 +135,36 @@ public:
         vel_limit_y_ = {static_cast<float>(lim_y[0]), static_cast<float>(lim_y[1])};
         vel_limit_z_ = {static_cast<float>(lim_z[0]), static_cast<float>(lim_z[1])};
 
-        // Init upper body defaults
-        for (int i = 0; i < NUM_UPPER_BODY; ++i)
-            upper_body_cmd_[i] = static_cast<float>(default_pos_[UPPER_BODY_INDICES[i]]);
-        for (int i = 0; i < NUM_UPPER_BODY; ++i)
-            upper_body_name_map_[UPPER_BODY_NAMES[i]] = i;
-
         // Load policy
-        RCLCPP_INFO(this->get_logger(), "Loading policy: %s", model_path.c_str());
+        RCLCPP_INFO(this->get_logger(), "Loading lower body policy: %s", model_path.c_str());
         policy_ = std::make_unique<OnnxPolicy>(model_path);
-        last_action_.resize(NUM_MOTOR, 0.0f);
+        last_action_.resize(NUM_LOWER_BODY, 0.0f);
 
-        auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);
+        auto qos = rclcpp::SensorDataQoS().keep_last(1);
 
         // Subscribers
         joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/joint_states", sensor_qos,
+            "/joint_states", qos,
             [this](const sensor_msgs::msg::JointState::SharedPtr msg) { JointStatesCallback(msg); });
 
-        // IMU comes from /lowstate (not available in JointState)
-        lowstate_sub_ = this->create_subscription<unitree_hg::msg::LowState>(
-            "/lowstate", sensor_qos,
-            [this](const unitree_hg::msg::LowState::SharedPtr msg) { LowStateCallback(msg); });
+        imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+            "/imu", qos,
+            [this](const sensor_msgs::msg::Imu::SharedPtr msg) { ImuCallback(msg); });
 
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel", sensor_qos,
+            "/cmd_vel", qos,
             [this](const geometry_msgs::msg::Twist::SharedPtr msg) { CmdVelCallback(msg); });
 
-        upper_body_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/upper_body_targets", sensor_qos,
-            [this](const sensor_msgs::msg::JointState::SharedPtr msg) { UpperBodyCallback(msg); });
-
-        // Publisher: JointState with 29 joint target positions → bridge
+        // Publisher: 12 lower body joint commands
         joint_cmd_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
-            "/joint_commands", 10);
+            "/lower_body_commands", qos);
 
         // 50 Hz control timer
         control_timer_ = this->create_wall_timer(
             std::chrono::microseconds(static_cast<int>(control_dt_ * 1e6)),
             [this] { Control(); });
 
-        RCLCPP_INFO(this->get_logger(), "Waiting for /joint_states, /lowstate, /cmd_vel, /upper_body_targets...");
+        RCLCPP_INFO(this->get_logger(), "Waiting for /joint_states, /imu, /cmd_vel...");
     }
 
 private:
@@ -188,17 +174,8 @@ private:
         vel_cmd_[2] = std::clamp(static_cast<float>(msg->angular.z), vel_limit_z_[0], vel_limit_z_[1]);
     }
 
-    void UpperBodyCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
-        for (size_t j = 0; j < msg->name.size() && j < msg->position.size(); ++j) {
-            auto it = upper_body_name_map_.find(msg->name[j]);
-            if (it != upper_body_name_map_.end())
-                upper_body_cmd_[it->second] = static_cast<float>(msg->position[j]);
-        }
-    }
-
     void JointStatesCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
         for (size_t j = 0; j < msg->name.size(); ++j) {
-            // Find motor index for this joint name
             for (int i = 0; i < NUM_MOTOR; ++i) {
                 if (msg->name[j] == JOINT_NAMES[i]) {
                     if (j < msg->position.size()) motor_q_[i] = msg->position[j];
@@ -210,12 +187,14 @@ private:
         state_received_ = true;
     }
 
-    void LowStateCallback(const unitree_hg::msg::LowState::SharedPtr msg) {
-        // Only used for IMU (not available in JointState)
-        for (int i = 0; i < 4; ++i)
-            imu_quat_[i] = msg->imu_state.quaternion[i];
-        for (int i = 0; i < 3; ++i)
-            imu_gyro_[i] = msg->imu_state.gyroscope[i];
+    void ImuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+        imu_quat_[0] = msg->orientation.w;
+        imu_quat_[1] = msg->orientation.x;
+        imu_quat_[2] = msg->orientation.y;
+        imu_quat_[3] = msg->orientation.z;
+        imu_gyro_[0] = msg->angular_velocity.x;
+        imu_gyro_[1] = msg->angular_velocity.y;
+        imu_gyro_[2] = msg->angular_velocity.z;
     }
 
     void Control() {
@@ -223,12 +202,13 @@ private:
 
         sensor_msgs::msg::JointState cmd;
         cmd.header.stamp = this->now();
-        cmd.name.assign(JOINT_NAMES.begin(), JOINT_NAMES.end());
-        cmd.position.resize(NUM_MOTOR, 0.0);
 
         time_ += control_dt_;
 
         if (time_ < standup_duration_) {
+            // Standup: publish all 29 joints interpolating to default
+            cmd.name.assign(JOINT_NAMES.begin(), JOINT_NAMES.end());
+            cmd.position.resize(NUM_MOTOR, 0.0);
             float ratio = std::clamp(static_cast<float>(time_ / standup_duration_), 0.0f, 1.0f);
             for (int i = 0; i < NUM_MOTOR; ++i)
                 cmd.position[i] = (1.0 - ratio) * motor_q_[i] + ratio * default_pos_[i];
@@ -243,35 +223,51 @@ private:
         } else {
             if (!running_policy_) {
                 running_policy_ = true;
-                RCLCPP_INFO(this->get_logger(), "Phase 2: Policy active");
+                RCLCPP_INFO(this->get_logger(), "Phase 2: Lower body policy active");
             }
 
+            // Build observation (81 dims)
             std::vector<float> obs;
             obs.reserve(OBS_DIM);
 
+            // 1. base_ang_vel (3)
             for (int i = 0; i < 3; ++i) obs.push_back(imu_gyro_[i]);
 
+            // 2. projected_gravity (3)
             Eigen::Quaternionf q(imu_quat_[0], imu_quat_[1], imu_quat_[2], imu_quat_[3]);
             Eigen::Vector3f gravity_b = q.conjugate() * Eigen::Vector3f(0.0f, 0.0f, -1.0f);
             obs.push_back(gravity_b.x()); obs.push_back(gravity_b.y()); obs.push_back(gravity_b.z());
 
+            // 3. velocity_commands (3)
             for (int i = 0; i < 3; ++i) obs.push_back(vel_cmd_[i]);
 
+            // 4. gait_phase (2) — sin/cos
             global_phase_ += static_cast<float>(control_dt_ / gait_period_);
             global_phase_ = std::fmod(global_phase_, 1.0f);
             float cmd_norm = std::sqrt(vel_cmd_[0]*vel_cmd_[0] + vel_cmd_[1]*vel_cmd_[1] + vel_cmd_[2]*vel_cmd_[2]);
             if (cmd_norm < 0.1f) { obs.push_back(0.0f); obs.push_back(0.0f); }
             else { obs.push_back(std::sin(global_phase_ * 2.0f * M_PI)); obs.push_back(std::cos(global_phase_ * 2.0f * M_PI)); }
 
-            for (int i = 0; i < NUM_MOTOR; ++i) obs.push_back(motor_q_[i] - static_cast<float>(default_pos_[i]));
-            for (int i = 0; i < NUM_MOTOR; ++i) obs.push_back(motor_dq_[i]);
-            for (int i = 0; i < NUM_MOTOR; ++i) obs.push_back(last_action_[i]);
-            for (int i = 0; i < NUM_UPPER_BODY; ++i) obs.push_back(upper_body_cmd_[i]);
+            // 5. joint_pos_rel (29) — all joints
+            for (int i = 0; i < NUM_MOTOR; ++i)
+                obs.push_back(motor_q_[i] - static_cast<float>(default_pos_[i]));
 
+            // 6. joint_vel (29) — all joints
+            for (int i = 0; i < NUM_MOTOR; ++i)
+                obs.push_back(motor_dq_[i]);
+
+            // 7. last_action (12) — lower body only
+            for (int i = 0; i < NUM_LOWER_BODY; ++i)
+                obs.push_back(last_action_[i]);
+
+            // Infer — outputs 12 actions for lower body
             auto raw_action = policy_->infer(obs);
             last_action_ = raw_action;
 
-            for (int i = 0; i < NUM_MOTOR; ++i)
+            // Publish only 12 lower body joints
+            cmd.name.assign(LOWER_BODY_NAMES.begin(), LOWER_BODY_NAMES.end());
+            cmd.position.resize(NUM_LOWER_BODY);
+            for (int i = 0; i < NUM_LOWER_BODY; ++i)
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
             static int print_counter = 0;
@@ -286,9 +282,8 @@ private:
 
     // ROS2
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
-    rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowstate_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr upper_body_sub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
 
@@ -300,10 +295,6 @@ private:
     std::vector<double> default_pos_, action_scale_;
     double control_dt_, standup_duration_, gait_period_;
     std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;
-
-    // Upper body
-    std::array<float, NUM_UPPER_BODY> upper_body_cmd_ = {};
-    std::unordered_map<std::string, int> upper_body_name_map_;
 
     // State
     double time_;

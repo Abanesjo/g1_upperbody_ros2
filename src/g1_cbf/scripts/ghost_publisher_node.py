@@ -8,7 +8,15 @@ all 29 joints: unsafe values override the corresponding joints from feedback.
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
+
+SENSOR_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import StaticTransformBroadcaster
 
@@ -23,17 +31,17 @@ class GhostPublisherNode(Node):
         self._latest_joint_states = {}  # name -> position (from feedback)
 
         self.js_pub = self.create_publisher(
-            JointState, '/ghost/joint_states', 10,
+            JointState, '/ghost/joint_states', SENSOR_QOS,
         )
 
         self.create_subscription(
             JointState, '/joint_commands_unsafe',
-            self._unsafe_cb, 10,
+            self._unsafe_cb, SENSOR_QOS,
         )
 
         self.create_subscription(
             JointState, '/joint_states',
-            self._joint_states_cb, 10,
+            self._joint_states_cb, SENSOR_QOS,
         )
 
         # Static TF: pelvis -> ghost/pelvis

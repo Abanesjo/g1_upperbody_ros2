@@ -12,6 +12,7 @@ import os
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
 from vision_msgs.msg import Detection3DArray
 from scipy.spatial.transform import Rotation as Rot
@@ -111,23 +112,31 @@ class G1CBFNode(Node):
         ])
         self.dq_min = -self.dq_max
 
+        # QoS: best-effort, volatile, depth 1
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
         # Subscribers
         self.create_subscription(
             JointState, '/joint_states',
-            self._joint_states_cb, 10,
+            self._joint_states_cb, sensor_qos,
         )
         self.create_subscription(
             JointState, '/joint_commands_unsafe',
-            self._unsafe_cmd_cb, 10,
+            self._unsafe_cmd_cb, sensor_qos,
         )
         self.create_subscription(
             Detection3DArray, '/bbox_3d',
-            self._bbox_cb, 10,
+            self._bbox_cb, sensor_qos,
         )
 
         # Publisher
         self.cmd_pub = self.create_publisher(
-            JointState, '/joint_commands', 10,
+            JointState, '/joint_commands', sensor_qos,
         )
 
         # Timer
@@ -208,6 +217,16 @@ class G1CBFNode(Node):
             self._build_capsule_constraints(
                 constraints, closest_points, metric_min,
             )
+
+        # Debug: log constraint activity
+        if constraints:
+            b_vals = [b for _, b in constraints]
+            max_b = max(b_vals)
+            if max_b > 0:
+                self.get_logger().info(
+                    f'Active constraints: {sum(1 for b in b_vals if b > 0)}/{len(constraints)}, max_b={max_b:.4f}',
+                    throttle_duration_sec=0.5,
+                )
 
         # Publish distance lines
         self.viz.publish_distances(

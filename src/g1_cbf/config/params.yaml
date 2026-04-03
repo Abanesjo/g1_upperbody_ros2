@@ -19,6 +19,6 @@ g1_cbf_node:
     gamma: 5.0
 
     #speed gain
-    K: 20.0
-    max_velocity: 5.0
+    K: 5.0
+    max_velocity: 2.0
     lpf_gain: 0.0

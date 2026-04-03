@@ -143,7 +143,7 @@ class CBFQPSolver:
                 verbose=False,
                 eps_abs=1e-6,
                 eps_rel=1e-6,
-                max_iter=200,
+                max_iter=4000,
                 warm_start=True,
             )
 
@@ -152,6 +152,7 @@ class CBFQPSolver:
             'solved', 'solved_inaccurate',
         ):
             return result.x[:n]
+        print(f'[QP FALLBACK] status={result.info.status}, n_cbf={n_cbf}')
         return np.clip(dq_ref, dq_min, dq_max)
 
     def _solve_scipy(

@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
 """
-G1 Bridge Node: bridges Unitree G1 lowstate/lowcmd to standard ROS2 joint interfaces.
+G1 Bridge Node: bridges Unitree G1 lowstate/lowcmd to standard ROS2 interfaces.
 
 Subscriptions:
-  /lowstate      (unitree_hg/msg/LowState) -> publishes /joint_states
+  /lowstate      (unitree_hg/msg/LowState) -> publishes /joint_states, /imu
   /joint_commands (sensor_msgs/JointState)  -> publishes /lowcmd
 
 """
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from sensor_msgs.msg import JointState, Imu
 from unitree_hg.msg import LowState, LowCmd
 
 from g1_bridge.crc import compute_crc
 
 G1_NUM_MOTOR = 29
+
+# Best-effort, volatile, depth 1 — matches Unitree SDK DDS defaults
+SENSOR_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 
 # URDF joint name -> motor index (29DOF version)
 JOINT_MAP = {
@@ -75,14 +84,15 @@ class G1BridgeNode(Node):
         self._latest_lowcmd = None
 
         # Publishers
-        self._joint_states_pub = self.create_publisher(JointState, '/joint_states', 10)
-        self._lowcmd_pub = self.create_publisher(LowCmd, '/lowcmd', 10)
+        self._joint_states_pub = self.create_publisher(JointState, '/joint_states', SENSOR_QOS)
+        self._imu_pub = self.create_publisher(Imu, '/imu', SENSOR_QOS)
+        self._lowcmd_pub = self.create_publisher(LowCmd, '/lowcmd', SENSOR_QOS)
 
         # Subscribers
         self._lowstate_sub = self.create_subscription(
-            LowState, '/lowstate', self._lowstate_cb, 10)
+            LowState, '/lowstate', self._lowstate_cb, SENSOR_QOS)
         self._joint_cmd_sub = self.create_subscription(
-            JointState, '/joint_commands', self._joint_cmd_cb, 10)
+            JointState, '/joint_commands', self._joint_cmd_cb, SENSOR_QOS)
 
         # 500 Hz republish timer for stable PD control
         self._republish_timer = self.create_timer(0.002, self._republish_lowcmd)
@@ -94,9 +104,11 @@ class G1BridgeNode(Node):
         self._mode_pr = msg.mode_pr
         self._has_state = True
 
+        stamp = self.get_clock().now().to_msg()
+
         # Build and publish JointState
         js = JointState()
-        js.header.stamp = self.get_clock().now().to_msg()
+        js.header.stamp = stamp
 
         for name in JOINT_NAMES:
             idx = JOINT_MAP[name]
@@ -107,6 +119,24 @@ class G1BridgeNode(Node):
             js.effort.append(float(motor.tau_est))
 
         self._joint_states_pub.publish(js)
+
+        # Build and publish Imu
+        imu = Imu()
+        imu.header.stamp = stamp
+        imu.header.frame_id = 'torso_link'
+        # Quaternion: unitree convention [w,x,y,z] -> ROS Imu [x,y,z,w]
+        imu.orientation.w = float(msg.imu_state.quaternion[0])
+        imu.orientation.x = float(msg.imu_state.quaternion[1])
+        imu.orientation.y = float(msg.imu_state.quaternion[2])
+        imu.orientation.z = float(msg.imu_state.quaternion[3])
+        imu.angular_velocity.x = float(msg.imu_state.gyroscope[0])
+        imu.angular_velocity.y = float(msg.imu_state.gyroscope[1])
+        imu.angular_velocity.z = float(msg.imu_state.gyroscope[2])
+        imu.linear_acceleration.x = float(msg.imu_state.accelerometer[0])
+        imu.linear_acceleration.y = float(msg.imu_state.accelerometer[1])
+        imu.linear_acceleration.z = float(msg.imu_state.accelerometer[2])
+
+        self._imu_pub.publish(imu)
 
     def _joint_cmd_cb(self, msg: JointState):
         if not self._has_state:
