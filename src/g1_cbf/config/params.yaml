@@ -3,7 +3,7 @@ g1_cbf_node:
     use_gpu: false
     
     dt: 0.01
-    collision_geometry: "spheres" #'capsules', 'boxes', or 'spheres'
+    collision_geometry: "capsules" #'capsules', 'boxes', or 'spheres'
 
     #sphere decomposition params (only used when collision_geometry: "spheres")
     sphere_interpolation_level: 1  # int, N extra spheres between each adjacent base pair
@@ -16,9 +16,9 @@ g1_cbf_node:
     beta: 1.05 #[scalar] related to minimum scaling factor
 
     #cbf constant
-    gamma: 5.0
+    gamma: 3.0
 
     #speed gain
-    K: 5.0
-    max_velocity: 2.0
+    K: 10.0
+    max_velocity: 5.0
     lpf_gain: 0.0
