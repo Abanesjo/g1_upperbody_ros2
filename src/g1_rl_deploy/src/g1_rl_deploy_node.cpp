@@ -13,8 +13,9 @@
 #include "geometry_msgs/msg/twist.hpp"
 
 static constexpr int NUM_MOTOR = 29;
-static constexpr int NUM_LOWER_BODY = 12;  // legs only (indices 0-11)
-static constexpr int OBS_DIM = 81;  // 3+3+3+2+29+29+12
+static constexpr int NUM_ACTION = 29;  // all joints (policy controls full body)
+static constexpr int NUM_UPPER_BODY_CMD = 8;  // upper body command targets
+static constexpr int OBS_DIM = 106;  // 3+3+3+2+29+29+29+8
 
 // All 29 joint names in motor index order
 static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
@@ -29,12 +30,9 @@ static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
     "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
 };
 
-// Lower body joint names (policy output order, indices 0-11)
-static const std::array<std::string, NUM_LOWER_BODY> LOWER_BODY_NAMES = {
-    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-    "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
-    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
-    "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
+// Upper body controlled joint names (CBF-filtered targets fed as observation)
+static constexpr int UPPER_BODY_INDICES[NUM_UPPER_BODY_CMD] = {
+    13, 14, 15, 16, 18, 22, 23, 25  // waist_roll, waist_pitch, L/R shoulder pitch/roll, L/R elbow
 };
 
 // ---------------------------------------------------------------------------
@@ -95,7 +93,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// ROS2 Node — Lower Body RL Policy Deploy
+// ROS2 Node — Full-Body RL Policy Deploy (velocity + upper body tracking)
 // ---------------------------------------------------------------------------
 class G1RLDeployNode : public rclcpp::Node {
 public:
@@ -115,10 +113,8 @@ public:
             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
              0.0, 0.0, 0.0, 0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
              0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0});
-        // Action scale for 12 lower body joints only
-        this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>{
-            0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
-            0.55, 0.35, 0.55, 0.35, 0.44, 0.44});
+        // Action scale for all 29 joints
+        this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>(NUM_ACTION, 0.44));
 
         // Read parameters
         std::string model_path = this->get_parameter("model_path").as_string();
@@ -136,9 +132,9 @@ public:
         vel_limit_z_ = {static_cast<float>(lim_z[0]), static_cast<float>(lim_z[1])};
 
         // Load policy
-        RCLCPP_INFO(this->get_logger(), "Loading lower body policy: %s", model_path.c_str());
+        RCLCPP_INFO(this->get_logger(), "Loading full-body policy: %s", model_path.c_str());
         policy_ = std::make_unique<OnnxPolicy>(model_path);
-        last_action_.resize(NUM_LOWER_BODY, 0.0f);
+        last_action_.resize(NUM_ACTION, 0.0f);
 
         auto qos = rclcpp::SensorDataQoS().keep_last(1);
 
@@ -155,16 +151,24 @@ public:
             "/cmd_vel", qos,
             [this](const geometry_msgs::msg::Twist::SharedPtr msg) { CmdVelCallback(msg); });
 
-        // Publisher: 12 lower body joint commands
+        upper_body_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
+            "/upper_body_targets", qos,
+            [this](const sensor_msgs::msg::JointState::SharedPtr msg) { UpperBodyCallback(msg); });
+
+        // Publisher: all 29 joint commands
         joint_cmd_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
-            "/lower_body_commands", qos);
+            "/joint_commands", qos);
 
         // 50 Hz control timer
         control_timer_ = this->create_wall_timer(
             std::chrono::microseconds(static_cast<int>(control_dt_ * 1e6)),
             [this] { Control(); });
 
-        RCLCPP_INFO(this->get_logger(), "Waiting for /joint_states, /imu, /cmd_vel...");
+        // Initialize upper body command targets to defaults
+        for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
+            upper_body_cmd_[i] = static_cast<float>(default_pos_[UPPER_BODY_INDICES[i]]);
+
+        RCLCPP_INFO(this->get_logger(), "Waiting for /joint_states, /imu, /cmd_vel, /upper_body_targets...");
     }
 
 private:
@@ -197,6 +201,18 @@ private:
         imu_gyro_[2] = msg->angular_velocity.z;
     }
 
+    void UpperBodyCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+        for (size_t j = 0; j < msg->name.size(); ++j) {
+            for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i) {
+                if (msg->name[j] == JOINT_NAMES[UPPER_BODY_INDICES[i]]) {
+                    if (j < msg->position.size())
+                        upper_body_cmd_[i] = static_cast<float>(msg->position[j]);
+                    break;
+                }
+            }
+        }
+    }
+
     void Control() {
         if (!state_received_) return;
 
@@ -223,10 +239,10 @@ private:
         } else {
             if (!running_policy_) {
                 running_policy_ = true;
-                RCLCPP_INFO(this->get_logger(), "Phase 2: Lower body policy active");
+                RCLCPP_INFO(this->get_logger(), "Phase 2: Full-body policy active");
             }
 
-            // Build observation (81 dims)
+            // Build observation (106 dims)
             std::vector<float> obs;
             obs.reserve(OBS_DIM);
 
@@ -256,18 +272,22 @@ private:
             for (int i = 0; i < NUM_MOTOR; ++i)
                 obs.push_back(motor_dq_[i]);
 
-            // 7. last_action (12) — lower body only
-            for (int i = 0; i < NUM_LOWER_BODY; ++i)
+            // 7. last_action (29) — all joints
+            for (int i = 0; i < NUM_ACTION; ++i)
                 obs.push_back(last_action_[i]);
 
-            // Infer — outputs 12 actions for lower body
+            // 8. upper_body_command (8) — CBF-filtered targets
+            for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
+                obs.push_back(upper_body_cmd_[i]);
+
+            // Infer — outputs 29 actions for all joints
             auto raw_action = policy_->infer(obs);
             last_action_ = raw_action;
 
-            // Publish only 12 lower body joints
-            cmd.name.assign(LOWER_BODY_NAMES.begin(), LOWER_BODY_NAMES.end());
-            cmd.position.resize(NUM_LOWER_BODY);
-            for (int i = 0; i < NUM_LOWER_BODY; ++i)
+            // Publish all 29 joints
+            cmd.name.assign(JOINT_NAMES.begin(), JOINT_NAMES.end());
+            cmd.position.resize(NUM_MOTOR);
+            for (int i = 0; i < NUM_MOTOR; ++i)
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
             static int print_counter = 0;
@@ -284,6 +304,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr upper_body_sub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
 
@@ -306,6 +327,7 @@ private:
     std::array<float, 4> imu_quat_ = {};
     std::array<float, 3> imu_gyro_ = {};
     std::array<float, 3> vel_cmd_ = {0.0f, 0.0f, 0.0f};
+    std::array<float, NUM_UPPER_BODY_CMD> upper_body_cmd_ = {};
 };
 
 int main(int argc, char** argv) {

@@ -1,27 +1,26 @@
 # G1 Joint Index Map (motor_state[i] / motor_cmd[i] in LowState/LowCmd)
 #
-#  0  left_hip_pitch       *  6  right_hip_pitch      *
-#  1  left_hip_roll        *  7  right_hip_roll       *
-#  2  left_hip_yaw         *  8  right_hip_yaw        *
-#  3  left_knee            *  9  right_knee           *
-#  4  left_ankle_pitch     * 10  right_ankle_pitch    *
-#  5  left_ankle_roll      * 11  right_ankle_roll     *
+#  0  left_hip_pitch          6  right_hip_pitch
+#  1  left_hip_roll           7  right_hip_roll
+#  2  left_hip_yaw            8  right_hip_yaw
+#  3  left_knee               9  right_knee
+#  4  left_ankle_pitch       10  right_ankle_pitch
+#  5  left_ankle_roll        11  right_ankle_roll
 #
-# 12  waist_yaw            D
-# 13  waist_roll            C
-# 14  waist_pitch           C
+# 12  waist_yaw
+# 13  waist_roll           U
+# 14  waist_pitch          U
 #
-# 15  left_shoulder_pitch   C  22  right_shoulder_pitch  C
-# 16  left_shoulder_roll    C  23  right_shoulder_roll   C
-# 17  left_shoulder_yaw     D  24  right_shoulder_yaw    D
-# 18  left_elbow            C  25  right_elbow           C
-# 19  left_wrist_roll       D  26  right_wrist_roll      D
-# 20  left_wrist_pitch      D  27  right_wrist_pitch     D
-# 21  left_wrist_yaw        D  28  right_wrist_yaw       D
+# 15  left_shoulder_pitch  U  22  right_shoulder_pitch  U
+# 16  left_shoulder_roll   U  23  right_shoulder_roll   U
+# 17  left_shoulder_yaw        24  right_shoulder_yaw
+# 18  left_elbow           U  25  right_elbow           U
+# 19  left_wrist_roll          26  right_wrist_roll
+# 20  left_wrist_pitch         27  right_wrist_pitch
+# 21  left_wrist_yaw           28  right_wrist_yaw
 #
-# * = lower body (12) — controlled by RL policy via /lower_body_commands
-# C = upper body (8)  — controlled by CBF via /upper_body_targets
-# D = default hold (9) — held at default positions by joint_merger
+# All 29 joints controlled by RL policy via /joint_commands
+# U = upper body (8) — CBF-filtered targets fed as observation to policy
 
 g1_rl_deploy_node:
   ros__parameters:
@@ -45,6 +44,9 @@ g1_rl_deploy_node:
                          0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0, # left arm
                          0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0] # right arm
 
-    # Per-joint action scale — 12 lower body joints only
-    action_scale: [0.55, 0.35, 0.55, 0.35, 0.44, 0.44,   # left leg
-                   0.55, 0.35, 0.55, 0.35, 0.44, 0.44]    # right leg
+    # Per-joint action scale — all 29 joints (0.25 * effort_limit / stiffness)
+    action_scale: [0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # left leg
+                   0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # right leg
+                   0.5475, 0.4386, 0.4386,                             # waist
+                   0.4386, 0.4386, 0.4386, 0.4386, 0.4386, 0.0745, 0.0745, # left arm
+                   0.4386, 0.4386, 0.4386, 0.4386, 0.4386, 0.0745, 0.0745] # right arm

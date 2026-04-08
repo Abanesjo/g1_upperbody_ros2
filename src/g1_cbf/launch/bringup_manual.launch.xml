@@ -37,10 +37,8 @@
     </node>
   </group>
 
-  <!-- ==================== joint_merger ==================== -->
-  <node pkg="g1_rl_deploy" exec="joint_merger" name="joint_merger" output="screen"/>
-
   <!-- ==================== g1_rl_deploy ==================== -->
+  <!-- Full-body policy: /cmd_vel + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
   </node>

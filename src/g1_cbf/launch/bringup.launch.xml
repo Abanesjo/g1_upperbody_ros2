@@ -21,7 +21,7 @@
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
 
   <!-- ==================== g1_cbf ==================== -->
-  <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets -->
+  <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (fed to RL policy) -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="urdf_path" value="$(var urdf_file)"/>
@@ -41,18 +41,14 @@
     </node>
   </group>
 
-  <!-- ==================== joint_merger ==================== -->
-  <!-- Merges /upper_body_targets + /lower_body_commands + defaults → /joint_commands (500 Hz) -->
-  <node pkg="g1_rl_deploy" exec="joint_merger" name="joint_merger" output="screen"/>
-
   <!-- ==================== g1_rl_deploy ==================== -->
-  <!-- Lower body policy: /cmd_vel + /joint_states + /imu → /lower_body_commands (12 leg joints) -->
+  <!-- Full-body policy: /cmd_vel + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
   </node>
 
   <!-- ==================== motion_playback ==================== -->
-  <!-- Dance motion CSV → /upper_body_targets_unsafe (CBF filters before merger) -->
+  <!-- Dance motion CSV → /upper_body_targets_unsafe (CBF filters before policy) -->
   <node pkg="g1_rl_deploy" exec="motion_playback" name="motion_playback" output="screen">
     <remap from="/joint_commands" to="/upper_body_targets_unsafe"/>
   </node>
