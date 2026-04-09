@@ -22,7 +22,9 @@ from cbfpy import CBF
 from g1_cbf.cbf_config import G1CollisionCBFConfig
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
+    LEG_JOINTS,
     N_HUMAN_CAPSULES,
+    N_LEG_JOINTS,
     capsule_endpoints_np,
 )
 from g1_cbf.collider_viz import ColliderVisualizer
@@ -64,13 +66,15 @@ class G1CBFNode(Node):
         # Warmup call
         _z = jnp.zeros(8)
         _u = jnp.zeros(8)
+        _ql = jnp.zeros(N_LEG_JOINTS)
         _hc = jnp.zeros((N_HUMAN_CAPSULES, 7))
         _hn = jnp.array(0)
-        _ = self.cbf.safety_filter(_z, _u, _hc, _hn)
+        _ = self.cbf.safety_filter(_z, _u, _ql, _hc, _hn)
         self.get_logger().info('CBF ready')
 
         # State
-        self.q_ctrl = None  # (8,) current controlled joint positions
+        self.q_ctrl = None   # (8,) current controlled joint positions
+        self.q_legs = np.zeros(N_LEG_JOINTS)  # (6,) current leg joint positions
         self.q_des_latest = None
         self.q_des_filtered = None
         self.q_cbf_target = None
@@ -129,6 +133,11 @@ class G1CBFNode(Node):
             if jname in name_to_pos:
                 q[i] = name_to_pos[jname]
         self.q_ctrl = q
+        ql = np.zeros(N_LEG_JOINTS)
+        for i, jname in enumerate(LEG_JOINTS):
+            if jname in name_to_pos:
+                ql[i] = name_to_pos[jname]
+        self.q_legs = ql
 
     def _unsafe_cmd_cb(self, msg: JointState):
         name_to_pos = dict(zip(msg.name, msg.position))
@@ -200,10 +209,11 @@ class G1CBFNode(Node):
         # Pack for JAX
         z = jnp.array(self.q_cbf_target, dtype=jnp.float64)
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
+        q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
         human_caps, human_count = self._pack_human_capsules()
 
         # Single CBF call — FK + proximity + QP all on GPU
-        dq_safe_jnp = self.cbf.safety_filter(z, u_des, human_caps, human_count)
+        dq_safe_jnp = self.cbf.safety_filter(z, u_des, q_legs_jnp, human_caps, human_count)
         dq_safe = np.asarray(dq_safe_jnp)
 
         # Integrate safe velocity into persistent target
@@ -240,9 +250,10 @@ class G1CBFNode(Node):
         # Visualization (outside hot path)
         if self.get_parameter('publish_viz').value:
             stamp = self.get_clock().now().to_msg()
-            self.viz.publish(stamp, self.q_cbf_target)
+            self.viz.publish(stamp, self.q_cbf_target, self.q_legs)
             self.viz.publish_distances(
                 stamp, self.q_cbf_target, self._human_capsules or None,
+                self.q_legs,
             )
 
     # ------------------------------------------------------------------

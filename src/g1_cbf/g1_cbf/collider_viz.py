@@ -73,14 +73,15 @@ class ColliderVisualizer:
             MarkerArray, '/collision_distances', 10,
         )
 
-    def publish(self, stamp, q_controlled):
+    def publish(self, stamp, q_controlled, q_legs=None):
         """Publish capsule markers for current joint configuration.
 
         Args:
             stamp: ROS2 time stamp.
             q_controlled: (8,) numpy array of controlled joint positions.
+            q_legs: (6,) numpy array of leg joint positions, or None.
         """
-        a_all, b_all, radii = capsule_endpoints_np(q_controlled)
+        a_all, b_all, radii = capsule_endpoints_np(q_controlled, q_legs)
         half_lengths = np.asarray(HALF_LENGTHS)
 
         msg = MarkerArray()
@@ -145,15 +146,17 @@ class ColliderVisualizer:
 
         self.pub.publish(msg)
 
-    def publish_distances(self, stamp, q_controlled, human_capsules=None):
+    def publish_distances(self, stamp, q_controlled, human_capsules=None,
+                          q_legs=None):
         """Publish line segments between closest points on collision pairs.
 
         Args:
             stamp: ROS2 time stamp.
             q_controlled: (8,) numpy array of controlled joint positions.
             human_capsules: optional list of {'a': (3,), 'b': (3,)} dicts.
+            q_legs: (6,) numpy array of leg joint positions, or None.
         """
-        a_all, b_all, radii = capsule_endpoints_np(q_controlled)
+        a_all, b_all, radii = capsule_endpoints_np(q_controlled, q_legs)
 
         msg = MarkerArray()
         idx = 0

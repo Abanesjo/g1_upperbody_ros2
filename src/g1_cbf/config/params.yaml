@@ -6,4 +6,4 @@ g1_cbf_node:
     K: 20.0           # proportional speed gain
     max_velocity: 100.0  # rad/s velocity limit
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
-    publish_viz: true # publish collision markers (/robot_colliders, /collision_distances)
+    publish_viz: false # publish collision markers (/robot_colliders, /collision_distances)

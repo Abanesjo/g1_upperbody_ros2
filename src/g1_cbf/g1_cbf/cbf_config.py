@@ -20,6 +20,7 @@ from g1_cbf.jax_kinematics import (
     N_SELF_PAIRS,
     N_BODIES,
     N_HUMAN_CAPSULES,
+    N_LEG_JOINTS,
     RADII,
 )
 
@@ -44,7 +45,8 @@ class G1CollisionCBFConfig(CBFConfig):
         self.gamma_val = gamma
         self.margin_phi = margin_phi
 
-        # Dummy human capsules for cbfpy validation at init
+        # Dummy args for cbfpy validation at init
+        dummy_legs = jnp.zeros(N_LEG_JOINTS)
         dummy_human = jnp.zeros((N_HUMAN_CAPSULES, 7))
         dummy_count = jnp.array(0)
 
@@ -56,7 +58,7 @@ class G1CollisionCBFConfig(CBFConfig):
             relax_qp=True,
             cbf_relaxation_penalty=1e4,
             solver_tol=1e-3,
-            init_args=(dummy_human, dummy_count),
+            init_args=(dummy_legs, dummy_human, dummy_count),
         )
 
     def f(self, z, *args, **kwargs):
@@ -65,11 +67,12 @@ class G1CollisionCBFConfig(CBFConfig):
     def g(self, z, *args, **kwargs):
         return jnp.eye(8)
 
-    def h_1(self, z, human_capsules, human_count, **kwargs):
+    def h_1(self, z, q_legs, human_capsules, human_count, **kwargs):
         """Barrier: capsule proximity for all collision pairs.
 
         Args:
             z: (8,) joint positions.
+            q_legs: (6,) leg joint positions.
             human_capsules: (N_HUMAN_CAPSULES, 7) packed as [ax,ay,az, bx,by,bz, r].
             human_count: scalar, number of active human capsules.
 
@@ -77,7 +80,7 @@ class G1CollisionCBFConfig(CBFConfig):
             (N_SELF_PAIRS + N_BODIES * N_HUMAN_CAPSULES,) barrier values.
             Positive = safe, zero = boundary, negative = violation.
         """
-        a_robot, b_robot = capsule_endpoints_all(z)
+        a_robot, b_robot = capsule_endpoints_all(z, q_legs)
 
         # Self-collision barriers
         barriers = []

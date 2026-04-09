@@ -157,21 +157,26 @@ _T_R_ROLL_TO_R_YAW = jnp.array(_np_T(_I3, [0.0, -0.00624, -0.1032]))
 # origin: xyz="0.015783 0 -0.080518"
 _T_R_YAW_TO_R_ELBOW = jnp.array(_np_T(_I3, [0.015783, 0.0, -0.080518]))
 
-# --- Thigh chains (static, all joints at 0) ---
+# --- Leg chain joint origins ---
+# q_legs[0..5] = L_hip_pitch, L_hip_roll, L_hip_yaw, R_hip_pitch, R_hip_roll, R_hip_yaw
 
-# pelvis → left_hip_pitch (q=0, Y) → left_hip_roll (q=0, X) → left_hip_yaw (q=0, Z)
-_T_PELVIS_TO_L_HIP_YAW = jnp.array(
-    _np_T(_I3, [0.0, 0.064452, -0.1027])            # hip_pitch origin
-    @ _np_T(_np_rpy(0.0, -0.1749, 0.0), [0.0, 0.052, -0.030465])  # hip_roll origin
-    @ _np_T(_I3, [0.025001, 0.0, -0.12412])          # hip_yaw origin
-)
+# pelvis → left_hip_pitch_joint (q_legs[0], axis=Y)
+_T_PELVIS_TO_L_HIP_PITCH = jnp.array(_np_T(_I3, [0.0, 0.064452, -0.1027]))
+# left_hip_pitch_link → left_hip_roll_joint (q_legs[1], axis=X)
+_T_L_HIP_PITCH_TO_ROLL = jnp.array(_np_T(
+    _np_rpy(0.0, -0.1749, 0.0), [0.0, 0.052, -0.030465],
+))
+# left_hip_roll_link → left_hip_yaw_joint (q_legs[2], axis=Z)
+_T_L_HIP_ROLL_TO_YAW = jnp.array(_np_T(_I3, [0.025001, 0.0, -0.12412]))
 
-# pelvis → right_hip_pitch (q=0, Y) → right_hip_roll (q=0, X) → right_hip_yaw (q=0, Z)
-_T_PELVIS_TO_R_HIP_YAW = jnp.array(
-    _np_T(_I3, [0.0, -0.064452, -0.1027])
-    @ _np_T(_np_rpy(0.0, -0.1749, 0.0), [0.0, -0.052, -0.030465])
-    @ _np_T(_I3, [0.025001, 0.0, -0.12412])
-)
+# pelvis → right_hip_pitch_joint (q_legs[3], axis=Y)
+_T_PELVIS_TO_R_HIP_PITCH = jnp.array(_np_T(_I3, [0.0, -0.064452, -0.1027]))
+# right_hip_pitch_link → right_hip_roll_joint (q_legs[4], axis=X)
+_T_R_HIP_PITCH_TO_ROLL = jnp.array(_np_T(
+    _np_rpy(0.0, -0.1749, 0.0), [0.0, -0.052, -0.030465],
+))
+# right_hip_roll_link → right_hip_yaw_joint (q_legs[5], axis=Z)
+_T_R_HIP_ROLL_TO_YAW = jnp.array(_np_T(_I3, [0.025001, 0.0, -0.12412]))
 
 # --- Collision body offsets ---
 
@@ -234,6 +239,17 @@ CONTROLLED_JOINTS = [
     'right_elbow_joint',
 ]
 
+# Leg joint names (for extracting from /joint_states)
+LEG_JOINTS = [
+    'left_hip_pitch_joint',
+    'left_hip_roll_joint',
+    'left_hip_yaw_joint',
+    'right_hip_pitch_joint',
+    'right_hip_roll_joint',
+    'right_hip_yaw_joint',
+]
+N_LEG_JOINTS = len(LEG_JOINTS)
+
 # Maximum human capsules (for fixed-size arrays)
 N_HUMAN_CAPSULES = 9
 
@@ -242,11 +258,13 @@ N_HUMAN_CAPSULES = 9
 # Forward kinematics
 # ---------------------------------------------------------------------------
 
-def _fk_body_transforms(q):
+def _fk_body_transforms(q, q_legs):
     """Compute 4x4 world-frame transforms for each collision body's offset frame.
 
     Args:
         q: (8,) controlled joint positions.
+        q_legs: (6,) leg joint positions [L_hip_pitch, L_hip_roll, L_hip_yaw,
+                R_hip_pitch, R_hip_roll, R_hip_yaw].
 
     Returns:
         Tuple of 7 transforms (4x4 each), ordered per BODY_NAMES.
@@ -286,24 +304,41 @@ def _fk_body_transforms(q):
     T_r_elbow_frame = _joint_T_y(T, q[7])  # right_elbow → right_elbow_link
     T_r_arm = T_r_elbow_frame @ _OFFSET_R_ARM
 
-    # Thighs (static)
-    T_l_thigh = _T_PELVIS_TO_L_HIP_YAW @ _OFFSET_L_THIGH
-    T_r_thigh = _T_PELVIS_TO_R_HIP_YAW @ _OFFSET_R_THIGH
+    # Left leg: pelvis → hip_pitch(q_legs[0]) → hip_roll(q_legs[1]) → hip_yaw(q_legs[2])
+    T = _T_PELVIS_TO_L_HIP_PITCH
+    T = _joint_T_y(T, q_legs[0])
+    T = T @ _T_L_HIP_PITCH_TO_ROLL
+    T = _joint_T_x(T, q_legs[1])
+    T = T @ _T_L_HIP_ROLL_TO_YAW
+    T_l_hip_yaw = _joint_T_z(T, q_legs[2])
+    T_l_thigh = T_l_hip_yaw @ _OFFSET_L_THIGH
+
+    # Right leg: pelvis → hip_pitch(q_legs[3]) → hip_roll(q_legs[4]) → hip_yaw(q_legs[5])
+    T = _T_PELVIS_TO_R_HIP_PITCH
+    T = _joint_T_y(T, q_legs[3])
+    T = T @ _T_R_HIP_PITCH_TO_ROLL
+    T = _joint_T_x(T, q_legs[4])
+    T = T @ _T_R_HIP_ROLL_TO_YAW
+    T_r_hip_yaw = _joint_T_z(T, q_legs[5])
+    T_r_thigh = T_r_hip_yaw @ _OFFSET_R_THIGH
 
     return (T_torso, T_l_arm, T_r_arm, T_l_shoulder, T_r_shoulder, T_l_thigh, T_r_thigh)
 
 
-def capsule_endpoints_all(q):
+def capsule_endpoints_all(q, q_legs=None):
     """Compute all capsule endpoints in the pelvis frame.
 
     Args:
         q: (8,) controlled joint positions.
+        q_legs: (6,) leg joint positions, or None for zeros (neutral).
 
     Returns:
         a_all: (N_BODIES, 3) — endpoint a for each capsule.
         b_all: (N_BODIES, 3) — endpoint b for each capsule.
     """
-    transforms = _fk_body_transforms(q)
+    if q_legs is None:
+        q_legs = jnp.zeros(N_LEG_JOINTS)
+    transforms = _fk_body_transforms(q, q_legs)
 
     a_list = []
     b_list = []
@@ -317,16 +352,19 @@ def capsule_endpoints_all(q):
     return jnp.stack(a_list), jnp.stack(b_list)
 
 
-def capsule_endpoints_np(q_np):
+def capsule_endpoints_np(q_np, q_legs_np=None):
     """Numpy convenience wrapper for visualization (outside JIT path).
 
     Args:
         q_np: (8,) numpy array of controlled joint positions.
+        q_legs_np: (6,) numpy array of leg joint positions, or None for zeros.
 
     Returns:
         a_all: (N_BODIES, 3) numpy
         b_all: (N_BODIES, 3) numpy
         radii: (N_BODIES,) numpy
     """
-    a, b = capsule_endpoints_all(jnp.array(q_np, dtype=jnp.float64))
+    q_j = jnp.array(q_np, dtype=jnp.float64)
+    ql_j = jnp.array(q_legs_np, dtype=jnp.float64) if q_legs_np is not None else None
+    a, b = capsule_endpoints_all(q_j, ql_j)
     return np.asarray(a), np.asarray(b), np.asarray(RADII)

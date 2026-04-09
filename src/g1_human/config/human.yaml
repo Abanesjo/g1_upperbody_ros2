@@ -12,4 +12,4 @@ g1_human_node:
 
     # Publish rate [Hz]
     rate: 50.0
-    publish_viz: true
+    publish_viz: false
