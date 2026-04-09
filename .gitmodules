@@ -7,3 +7,6 @@
 [submodule "dependencies/cyclonedds"]
 	path = dependencies/cyclonedds
 	url = https://github.com/eclipse-cyclonedds/cyclonedds
+[submodule "dependencies/cbfpy"]
+	path = dependencies/cbfpy
+	url = https://github.com/Abanesjo/cbfpy.git

@@ -19,10 +19,5 @@ install(PROGRAMS
   RENAME ghost_publisher_node
   DESTINATION lib/${PROJECT_NAME}
 )
-install(PROGRAMS
-  scripts/bbox_node.py
-  RENAME bbox_node
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 ament_package()

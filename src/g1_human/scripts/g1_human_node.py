@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Human capsule collider publisher.
 
-Loads the same G1 URDF and collision body definitions used by the CBF.
-Computes FK at neutral (or subscribed joint positions), applies a fixed
-pelvis-to-pelvis transform, and publishes all collision capsules as a
-CapsuleArray on /human/colliders.
+Uses the same JAX FK as the CBF node to compute capsule endpoints,
+applies a fixed pelvis-to-pelvis transform, and publishes all collision
+capsules as a CapsuleArray on /human/colliders.
 """
 
 import numpy as np
-import pinocchio as pin
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
@@ -19,7 +17,10 @@ from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Quaternion, Vector3
 from std_msgs.msg import ColorRGBA
 
-from g1_cbf.kinematics import G1Kinematics, _COLLISION_BODIES, CONTROLLED_JOINTS
+from g1_cbf.jax_kinematics import (
+    capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII,
+    N_BODIES, CONTROLLED_JOINTS,
+)
 from g1_cbf_msg.msg import Capsule, CapsuleArray
 
 SENSOR_QOS = QoSProfile(
@@ -35,7 +36,6 @@ class G1HumanNode(Node):
         super().__init__('g1_human_node')
 
         # Parameters
-        self.declare_parameter('urdf_path', '')
         self.declare_parameter('human_x', 0.6)
         self.declare_parameter('human_y', 0.0)
         self.declare_parameter('human_z', 0.0)
@@ -43,23 +43,10 @@ class G1HumanNode(Node):
         self.declare_parameter('human_pitch', 0.0)
         self.declare_parameter('human_yaw', 3.14159)
         self.declare_parameter('rate', 50.0)
-        self.declare_parameter('collision_geometry', 'capsules')
-        self.declare_parameter('sphere_interpolation_level', 0)
-        self.declare_parameter('sphere_radius_gain', 1.0)
 
-        self.geom_type = self.get_parameter('collision_geometry').value
-
-        urdf_path = self.get_parameter('urdf_path').value
-        if not urdf_path:
-            self.get_logger().fatal('urdf_path parameter is required')
-            raise RuntimeError('urdf_path not set')
-
-        # Kinematics (same URDF as robot)
-        self.kin = G1Kinematics(urdf_path)
-
-        # Joint state: start at neutral
-        self.q_full = pin.neutral(self.kin.model)
-        self.q_des = None  # overridden by /human/joint_commands
+        # Joint state: 8 controlled joints, default neutral (zeros)
+        self.q_controlled = np.zeros(8)
+        self.q_des = None
 
         # Publishers
         self.capsule_pub = self.create_publisher(
@@ -69,7 +56,7 @@ class G1HumanNode(Node):
             MarkerArray, '/human/collider_markers', 10,
         )
 
-        # Subscriber for human joint commands (same format as robot GUI)
+        # Subscriber for human joint commands
         self.create_subscription(
             JointState, '/human/joint_commands',
             self._joint_cmd_cb, SENSOR_QOS,
@@ -84,7 +71,7 @@ class G1HumanNode(Node):
         )
 
     def _get_pelvis_transform(self):
-        """Build 4x4 transform from robot pelvis to human pelvis."""
+        """Build rotation + translation from robot pelvis to human pelvis."""
         tx = self.get_parameter('human_x').value
         ty = self.get_parameter('human_y').value
         tz = self.get_parameter('human_z').value
@@ -97,41 +84,33 @@ class G1HumanNode(Node):
         return R, t
 
     def _joint_cmd_cb(self, msg: JointState):
-        """Accept joint commands in the same format as the robot GUI."""
-        q = self.q_full.copy()
-        for name, pos in zip(msg.name, msg.position):
-            try:
-                jid = self.kin.model.getJointId(name)
-                if jid < self.kin.model.njoints:
-                    idx_q = self.kin.model.joints[jid].idx_q
-                    q[idx_q] = pos
-            except Exception:
-                pass
+        """Accept joint commands — extract the 8 controlled joints."""
+        name_to_pos = dict(zip(msg.name, msg.position))
+        q = np.zeros(8)
+        for i, jname in enumerate(CONTROLLED_JOINTS):
+            if jname in name_to_pos:
+                q[i] = name_to_pos[jname]
         self.q_des = q
 
     def _tick(self):
-        # Use desired joints if available, else neutral
-        if self.q_des is not None:
-            q = self.q_des.copy()
-        else:
-            q = pin.neutral(self.kin.model)
+        q = self.q_des if self.q_des is not None else np.zeros(8)
 
-        # Run FK in the human's own frame
-        self.kin.update(q)
+        # FK via JAX (returns numpy)
+        a_all, b_all, radii = capsule_endpoints_np(q)
+        half_lengths = np.asarray(HALF_LENGTHS)
 
         R_base, t_base = self._get_pelvis_transform()
 
-        # Build capsule array
+        # Build capsule message + viz data
         capsule_msg = CapsuleArray()
-        capsule_msg.header.stamp = self.get_clock().now().to_msg()
-        capsule_msg.header.frame_id = 'pelvis'  # robot's pelvis frame
+        stamp = self.get_clock().now().to_msg()
+        capsule_msg.header.stamp = stamp
+        capsule_msg.header.frame_id = 'pelvis'
 
-        # Collect capsule data for all bodies
         capsule_data = []
-        for name, body in _COLLISION_BODIES.items():
-            a, b, _, _ = self.kin.get_endpoint_jacobians(name)
-            a_world = R_base @ a + t_base
-            b_world = R_base @ b + t_base
+        for i in range(N_BODIES):
+            a_world = R_base @ a_all[i] + t_base
+            b_world = R_base @ b_all[i] + t_base
 
             capsule = Capsule()
             capsule.a = Point(
@@ -144,28 +123,58 @@ class G1HumanNode(Node):
                 y=float(b_world[1]),
                 z=float(b_world[2]),
             )
-            capsule.radius = float(body['radius'])
-            capsule.name = name
+            capsule.radius = float(radii[i])
+            capsule.name = BODY_NAMES[i]
             capsule_msg.capsules.append(capsule)
-            capsule_data.append((name, body, a_world, b_world))
+            capsule_data.append((
+                BODY_NAMES[i], float(radii[i]),
+                float(half_lengths[i]), a_world, b_world,
+            ))
 
-        # Visualization
-        stamp = capsule_msg.header.stamp
-        if self.geom_type == 'spheres':
-            viz_msg = self._viz_spheres(stamp, capsule_data)
-        elif self.geom_type == 'boxes':
-            viz_msg = self._viz_boxes(stamp, capsule_data)
-        else:
-            viz_msg = self._viz_capsules(stamp, capsule_data)
+        # Visualization (capsules only)
+        viz_msg = self._viz_capsules(stamp, capsule_data)
 
         self.capsule_pub.publish(capsule_msg)
         self.viz_pub.publish(viz_msg)
 
-
     _COLOR = (0.9, 0.5, 0.1, 0.3)  # orange for human
 
+    def _viz_capsules(self, stamp, capsule_data):
+        msg = MarkerArray()
+        mid = 0
+        for name, radius, half_length, a_world, b_world in capsule_data:
+            diam = 2.0 * radius
+            seg_half = half_length - radius
+            shaft_len = 2.0 * seg_half
+            center = (a_world + b_world) / 2.0
+            quat = self._axis_to_quat(a_world, b_world)
+
+            msg.markers.append(self._make_marker(
+                stamp, mid, Marker.CYLINDER, center, quat,
+                diam, diam, shaft_len,
+            ))
+            mid += 1
+            for endpoint in (a_world, b_world):
+                msg.markers.append(self._make_marker(
+                    stamp, mid, Marker.SPHERE, endpoint,
+                    [0, 0, 0, 1], diam, diam, diam,
+                ))
+                mid += 1
+
+        # Clean stale markers
+        prev = getattr(self, '_prev_n_markers', 0)
+        for j in range(mid, prev):
+            m = Marker()
+            m.header.frame_id = 'pelvis'
+            m.header.stamp = stamp
+            m.ns = 'human_colliders'
+            m.id = j
+            m.action = Marker.DELETE
+            msg.markers.append(m)
+        self._prev_n_markers = mid
+        return msg
+
     def _axis_to_quat(self, a_world, b_world):
-        """Compute quaternion aligning Z with the capsule axis."""
         axis = a_world - b_world
         length = np.linalg.norm(axis)
         if length > 1e-6:
@@ -200,91 +209,6 @@ class G1HumanNode(Node):
         r, g, b, a = self._COLOR
         m.color = ColorRGBA(r=r, g=g, b=b, a=a)
         return m
-
-    def _cleanup_stale(self, stamp, msg, mid):
-        prev = getattr(self, '_prev_n_markers', 0)
-        for j in range(mid, prev):
-            m = Marker()
-            m.header.frame_id = 'pelvis'
-            m.header.stamp = stamp
-            m.ns = 'human_colliders'
-            m.id = j
-            m.action = Marker.DELETE
-            msg.markers.append(m)
-        self._prev_n_markers = mid
-
-    def _viz_capsules(self, stamp, capsule_data):
-        msg = MarkerArray()
-        mid = 0
-        for name, body, a_world, b_world in capsule_data:
-            diam = 2.0 * body['radius']
-            seg_half = body['half_length'] - body['radius']
-            shaft_len = 2.0 * seg_half
-            center = (a_world + b_world) / 2.0
-            quat = self._axis_to_quat(a_world, b_world)
-
-            msg.markers.append(self._make_marker(
-                stamp, mid, Marker.CYLINDER, center, quat,
-                diam, diam, shaft_len,
-            ))
-            mid += 1
-            for endpoint in (a_world, b_world):
-                msg.markers.append(self._make_marker(
-                    stamp, mid, Marker.SPHERE, endpoint,
-                    [0, 0, 0, 1], diam, diam, diam,
-                ))
-                mid += 1
-
-        self._cleanup_stale(stamp, msg, mid)
-        return msg
-
-    def _viz_boxes(self, stamp, capsule_data):
-        msg = MarkerArray()
-        mid = 0
-        for name, body, a_world, b_world in capsule_data:
-            center = (a_world + b_world) / 2.0
-            quat = self._axis_to_quat(a_world, b_world)
-            r = body['radius']
-            h = body['half_length']
-            msg.markers.append(self._make_marker(
-                stamp, mid, Marker.CUBE, center, quat,
-                2.0 * r, 2.0 * r, 2.0 * h,
-            ))
-            mid += 1
-
-        self._cleanup_stale(stamp, msg, mid)
-        return msg
-
-    def _viz_spheres(self, stamp, capsule_data):
-        interp_level = self.get_parameter('sphere_interpolation_level').value
-        radius_gain = self.get_parameter('sphere_radius_gain').value
-
-        msg = MarkerArray()
-        mid = 0
-        identity_quat = [0.0, 0.0, 0.0, 1.0]
-
-        for name, body, a_world, b_world in capsule_data:
-            R = body['radius']
-            L = np.linalg.norm(a_world - b_world)
-            n_base = max(1, round(L / (2.0 * R))) if L > 0 else 1
-            n_total = n_base + max(0, n_base - 1) * interp_level
-
-            if n_total == 1:
-                t_values = np.array([0.5])
-            else:
-                t_values = np.linspace(0.0, 1.0, n_total)
-
-            diam = 2.0 * R * radius_gain
-            for t in t_values:
-                c = (1.0 - t) * b_world + t * a_world
-                msg.markers.append(self._make_marker(
-                    stamp, mid, Marker.SPHERE, c,
-                    identity_quat, diam, diam, diam,
-                ))
-                mid += 1
-
-        self._cleanup_stale(stamp, msg, mid)
-        return msg
 
 
 def main(args=None):

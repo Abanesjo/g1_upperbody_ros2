@@ -1,61 +1,77 @@
-"""MarkerArray publisher for collision geometry visualization.
+"""MarkerArray publisher for capsule collision visualization."""
 
-Publishes /robot_colliders with all bodies as capsules or boxes,
-exactly matching the CBF geometry.
-"""
-
+import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point, Quaternion, Vector3
 from std_msgs.msg import ColorRGBA
 
+from g1_cbf.jax_kinematics import (
+    capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII, N_BODIES,
+)
+
 _COLORS = {
     'torso': (0.2, 0.8, 0.2, 0.3),
     'left_arm': (0.2, 0.4, 0.9, 0.3),
     'right_arm': (0.9, 0.3, 0.2, 0.3),
+    'left_shoulder': (0.3, 0.3, 0.9, 0.3),
+    'right_shoulder': (0.9, 0.2, 0.3, 0.3),
     'left_thigh': (0.2, 0.7, 0.7, 0.3),
     'right_thigh': (0.7, 0.7, 0.2, 0.3),
 }
 
 
 class ColliderVisualizer:
-    """Publishes MarkerArray for collision geometry."""
+    """Publishes capsule MarkerArray for collision geometry."""
 
-    def __init__(self, node, kinematics, geometry_type='capsules'):
-        self.kin = kinematics
-        self.geometry_type = geometry_type
+    def __init__(self, node):
         self.pub = node.create_publisher(
             MarkerArray, '/robot_colliders', 10,
         )
-        self.dist_pub = node.create_publisher(
-            MarkerArray, '/collision_distances', 10,
-        )
 
-    def publish(self, stamp):
-        if self.geometry_type == 'boxes':
-            self._publish_boxes(stamp)
-        elif self.geometry_type == 'spheres':
-            pass  # spheres use publish_spheres() with precomputed data
-        else:
-            self._publish_capsules(stamp)
+    def publish(self, stamp, q_controlled):
+        """Publish capsule markers for current joint configuration.
 
-    def _publish_capsules(self, stamp):
+        Args:
+            stamp: ROS2 time stamp.
+            q_controlled: (8,) numpy array of controlled joint positions.
+        """
+        a_all, b_all, radii = capsule_endpoints_np(q_controlled)
+        half_lengths = np.asarray(HALF_LENGTHS)
+
         msg = MarkerArray()
         mid = 0
 
-        for name, body in self.kin.collision_bodies.items():
-            radius = body['radius']
-            half_len = body['half_length']
-            seg_half = half_len - radius
+        for i in range(N_BODIES):
+            name = BODY_NAMES[i]
+            radius = float(radii[i])
+            seg_half = float(half_lengths[i]) - radius
             shaft_len = 2.0 * seg_half
+            diam = 2.0 * radius
             color = _COLORS.get(name, (0.5, 0.5, 0.5, 0.3))
 
-            center, rot = self.kin.get_collision_pose(name)
-            quat = Rot.from_matrix(rot).as_quat()
-            axis = rot[:, 2]
+            a = a_all[i]
+            b = b_all[i]
+            center = (a + b) / 2.0
+            axis = a - b
+            length = np.linalg.norm(axis)
 
-            diam = 2.0 * radius
+            if length > 1e-6:
+                z_ax = axis / length
+                up = np.array([0.0, 0.0, 1.0])
+                if abs(np.dot(z_ax, up)) > 0.999:
+                    up = np.array([1.0, 0.0, 0.0])
+                x_ax = np.cross(up, z_ax)
+                x_ax /= np.linalg.norm(x_ax)
+                y_ax = np.cross(z_ax, x_ax)
+                R = np.column_stack([x_ax, y_ax, z_ax])
+            else:
+                R = np.eye(3)
+
+            quat = Rot.from_matrix(R).as_quat()
+
+            # Cylinder shaft
             m = self._make_marker(
                 stamp, mid, Marker.CYLINDER,
                 center, quat, diam, diam, shaft_len, color,
@@ -63,46 +79,32 @@ class ColliderVisualizer:
             msg.markers.append(m)
             mid += 1
 
-            for sign in (+1, -1):
-                sph_c = center + sign * seg_half * axis
+            # Sphere caps
+            for endpoint in (a, b):
                 m = self._make_marker(
                     stamp, mid, Marker.SPHERE,
-                    sph_c, quat, diam, diam, diam, color,
+                    endpoint, quat, diam, diam, diam, color,
                 )
                 msg.markers.append(m)
                 mid += 1
 
-        self.pub.publish(msg)
-
-    def _publish_boxes(self, stamp):
-        msg = MarkerArray()
-        mid = 0
-
-        for name, body in self.kin.collision_bodies.items():
-            radius = body['radius']
-            half_len = body['half_length']
-            color = _COLORS.get(name, (0.5, 0.5, 0.5, 0.3))
-
-            center, rot = self.kin.get_collision_pose(name)
-            quat = Rot.from_matrix(rot).as_quat()
-
-            # Box: X,Y = 2*radius, Z = 2*half_length
-            m = self._make_marker(
-                stamp, mid, Marker.CUBE,
-                center, quat,
-                2.0 * radius, 2.0 * radius, 2.0 * half_len,
-                color,
-            )
+        # Clean stale markers
+        prev = getattr(self, '_prev_n_markers', 0)
+        for j in range(mid, prev):
+            m = Marker()
+            m.header.frame_id = 'pelvis'
+            m.header.stamp = stamp
+            m.ns = 'colliders'
+            m.id = j
+            m.action = Marker.DELETE
             msg.markers.append(m)
-            mid += 1
+        self._prev_n_markers = mid
 
         self.pub.publish(msg)
 
     @staticmethod
-    def _make_marker(
-        stamp, marker_id, marker_type,
-        center, quat, sx, sy, sz, color,
-    ):
+    def _make_marker(stamp, marker_id, marker_type,
+                     center, quat, sx, sy, sz, color):
         m = Marker()
         m.header.frame_id = 'pelvis'
         m.header.stamp = stamp
@@ -125,79 +127,3 @@ class ColliderVisualizer:
         r, g, b, a = color
         m.color = ColorRGBA(r=r, g=g, b=b, a=a)
         return m
-
-    def publish_spheres(self, stamp, sphere_data):
-        """Publish sphere decomposition as SPHERE markers.
-
-        Parameters
-        ----------
-        sphere_data : dict
-            Maps body_name -> {'centers': (n,3), 'radius': float, 'n_spheres': int}
-        """
-        msg = MarkerArray()
-        mid = 0
-        identity_quat = [0.0, 0.0, 0.0, 1.0]
-
-        for name, data in sphere_data.items():
-            color = _COLORS.get(name, (0.5, 0.5, 0.5, 0.3))
-            diam = 2.0 * data['radius']
-
-            for i in range(data['n_spheres']):
-                center = data['centers'][i]
-                m = self._make_marker(
-                    stamp, mid, Marker.SPHERE,
-                    center, identity_quat,
-                    diam, diam, diam, color,
-                )
-                msg.markers.append(m)
-                mid += 1
-
-        # Delete stale markers from previous frames
-        prev = getattr(self, '_prev_n_sphere_markers', 0)
-        for j in range(mid, prev):
-            m = Marker()
-            m.header.frame_id = 'pelvis'
-            m.header.stamp = stamp
-            m.ns = 'colliders'
-            m.id = j
-            m.action = Marker.DELETE
-            msg.markers.append(m)
-        self._prev_n_sphere_markers = mid
-
-        self.pub.publish(msg)
-
-    def publish_distances(self, stamp, closest_points):
-        """Publish line segments between closest points."""
-        msg = MarkerArray()
-        n = len(closest_points)
-        for i, (p1, p2) in enumerate(closest_points):
-            m = Marker()
-            m.header.frame_id = 'pelvis'
-            m.header.stamp = stamp
-            m.ns = 'distances'
-            m.id = i
-            m.type = Marker.LINE_LIST
-            m.action = Marker.ADD
-            m.scale = Vector3(x=0.005, y=0.0, z=0.0)
-            m.color = ColorRGBA(r=1.0, g=1.0, b=0.0, a=1.0)
-            m.points.append(Point(
-                x=float(p1[0]), y=float(p1[1]), z=float(p1[2]),
-            ))
-            m.points.append(Point(
-                x=float(p2[0]), y=float(p2[1]), z=float(p2[2]),
-            ))
-            msg.markers.append(m)
-
-        # Delete stale markers from previous frames
-        prev = getattr(self, '_prev_n_distances', 0)
-        for j in range(n, prev):
-            m = Marker()
-            m.header.frame_id = 'pelvis'
-            m.header.stamp = stamp
-            m.ns = 'distances'
-            m.id = j
-            m.action = Marker.DELETE
-            msg.markers.append(m)
-        self._prev_n_distances = n
-
-        self.dist_pub.publish(msg)

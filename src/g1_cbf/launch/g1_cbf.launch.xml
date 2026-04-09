@@ -5,7 +5,6 @@
   <!-- CBF safety filter -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
-    <param name="urdf_path" value="$(var urdf_file)"/>
   </node>
 
   <!-- Ghost robot: visualize unsafe commands -->
@@ -19,7 +18,4 @@
       <remap from="joint_states" to="/ghost/joint_states"/>
     </node>
   </group>
-
-  <!-- Obstacle Detection -->
-  <node pkg="g1_cbf" exec="bbox_node" name="bbox_node" output="screen"/>
 </launch>

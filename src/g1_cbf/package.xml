@@ -3,7 +3,7 @@
 <package format="3">
   <name>g1_cbf</name>
   <version>0.0.1</version>
-  <description>CBF safety filter for G1 humanoid self-collision avoidance</description>
+  <description>CBF safety filter for G1 humanoid collision avoidance</description>
   <maintainer email="user@todo.todo">user</maintainer>
   <license>MIT</license>
 
@@ -14,8 +14,6 @@
   <depend>sensor_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>tf2_ros</depend>
-  <depend>vision_msgs</depend>
   <depend>g1_cbf_msg</depend>
 
   <exec_depend>g1_description</exec_depend>

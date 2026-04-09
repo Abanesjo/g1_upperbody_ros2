@@ -1,8 +1,5 @@
 <launch>
-  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29dof.urdf"/>
-
   <node pkg="g1_human" exec="g1_human_node" name="g1_human_node" output="screen">
     <param from="$(find-pkg-share g1_human)/config/human.yaml"/>
-    <param name="urdf_path" value="$(var urdf_file)"/>
   </node>
 </launch>

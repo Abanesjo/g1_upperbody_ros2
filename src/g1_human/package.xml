@@ -16,7 +16,7 @@
   <depend>visualization_msgs</depend>
   <depend>g1_cbf_msg</depend>
 
-  <exec_depend>g1_description</exec_depend>
+  <exec_depend>g1_cbf</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
