@@ -290,6 +290,10 @@ private:
             for (int i = 0; i < NUM_MOTOR; ++i)
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
+            // Override 8 upper body joints with CBF-filtered targets directly
+            for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
+                cmd.position[UPPER_BODY_INDICES[i]] = upper_body_cmd_[i];
+
             static int print_counter = 0;
             if (++print_counter % 250 == 0) {
                 RCLCPP_INFO(this->get_logger(), "t=%.1f cmd_vel=[%.2f,%.2f,%.2f]",

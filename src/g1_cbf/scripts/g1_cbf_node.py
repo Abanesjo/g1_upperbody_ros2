@@ -40,6 +40,7 @@ class G1CBFNode(Node):
         self.declare_parameter('K', 5.0)
         self.declare_parameter('max_velocity', 2.0)
         self.declare_parameter('lpf_gain', 0.0)
+        self.declare_parameter('publish_viz', False)
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
@@ -237,11 +238,12 @@ class G1CBFNode(Node):
         self.cmd_pub.publish(safe_msg)
 
         # Visualization (outside hot path)
-        stamp = self.get_clock().now().to_msg()
-        self.viz.publish(stamp, self.q_cbf_target)
-        self.viz.publish_distances(
-            stamp, self.q_cbf_target, self._human_capsules or None,
-        )
+        if self.get_parameter('publish_viz').value:
+            stamp = self.get_clock().now().to_msg()
+            self.viz.publish(stamp, self.q_cbf_target)
+            self.viz.publish_distances(
+                stamp, self.q_cbf_target, self._human_capsules or None,
+            )
 
     # ------------------------------------------------------------------
     # Helpers
