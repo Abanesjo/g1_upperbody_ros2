@@ -239,6 +239,9 @@ class G1CBFNode(Node):
         # Visualization (outside hot path)
         stamp = self.get_clock().now().to_msg()
         self.viz.publish(stamp, self.q_cbf_target)
+        self.viz.publish_distances(
+            stamp, self.q_cbf_target, self._human_capsules or None,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
