@@ -235,7 +235,7 @@ CONTROLLED_JOINTS = [
 ]
 
 # Maximum human capsules (for fixed-size arrays)
-N_HUMAN_CAPSULES = 7
+N_HUMAN_CAPSULES = 9
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,9 @@ applies a fixed pelvis-to-pelvis transform, and publishes all collision
 capsules as a CapsuleArray on /human/colliders.
 """
 
+import os
+os.environ['JAX_ENABLE_X64'] = '1'
+
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -43,6 +46,7 @@ class G1HumanNode(Node):
         self.declare_parameter('human_pitch', 0.0)
         self.declare_parameter('human_yaw', 3.14159)
         self.declare_parameter('rate', 50.0)
+        self.declare_parameter('publish_viz', False)
 
         # Joint state: 8 controlled joints, default neutral (zeros)
         self.q_controlled = np.zeros(8)
@@ -107,35 +111,92 @@ class G1HumanNode(Node):
         capsule_msg.header.stamp = stamp
         capsule_msg.header.frame_id = 'pelvis'
 
+        # Thigh indices for extension
+        THIGH_INDICES = {
+            BODY_NAMES.index('left_thigh'): 'left',
+            BODY_NAMES.index('right_thigh'): 'right',
+        }
+        THIGH_SCALE = 1.5
+        shin_radius = 0.065
+        shin_half_length = 0.15 * 1.5
+        shin_seg_half = shin_half_length - shin_radius
+        shin_knee_bend = np.radians(10.0)  # slight forward bend at knee
+
         capsule_data = []
+        thigh_bottoms = {}  # side -> bottom endpoint in local frame (for shin attachment)
+
         for i in range(N_BODIES):
-            a_world = R_base @ a_all[i] + t_base
-            b_world = R_base @ b_all[i] + t_base
+            r = float(radii[i])
+            hl = float(half_lengths[i])
+            a_local = a_all[i]
+            b_local = b_all[i]
+
+            # Extend thigh capsules for the human
+            if i in THIGH_INDICES:
+                hl_ext = hl * THIGH_SCALE
+                seg_half_ext = hl_ext - r
+                center = (a_local + b_local) / 2.0
+                axis = a_local - b_local
+                length = np.linalg.norm(axis)
+                if length > 1e-6:
+                    direction = axis / length
+                else:
+                    direction = np.array([0.0, 0.0, 1.0])
+                a_local = center + seg_half_ext * direction
+                b_local = center - seg_half_ext * direction
+                hl = hl_ext
+                thigh_bottoms[THIGH_INDICES[i]] = b_local.copy()
+
+            a_world = R_base @ a_local + t_base
+            b_world = R_base @ b_local + t_base
 
             capsule = Capsule()
-            capsule.a = Point(
-                x=float(a_world[0]),
-                y=float(a_world[1]),
-                z=float(a_world[2]),
-            )
-            capsule.b = Point(
-                x=float(b_world[0]),
-                y=float(b_world[1]),
-                z=float(b_world[2]),
-            )
-            capsule.radius = float(radii[i])
+            capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
+            capsule.b = Point(x=float(b_world[0]), y=float(b_world[1]), z=float(b_world[2]))
+            capsule.radius = r
             capsule.name = BODY_NAMES[i]
             capsule_msg.capsules.append(capsule)
-            capsule_data.append((
-                BODY_NAMES[i], float(radii[i]),
-                float(half_lengths[i]), a_world, b_world,
-            ))
+            capsule_data.append((BODY_NAMES[i], r, hl, a_world, b_world))
 
-        # Visualization (capsules only)
-        viz_msg = self._viz_capsules(stamp, capsule_data)
+        # Shin capsules — start at bottom of extended thigh, continue in same direction
+        for side in ('left', 'right'):
+            thigh_idx = BODY_NAMES.index(f'{side}_thigh')
+            a_thigh = a_all[thigh_idx]
+            b_thigh = thigh_bottoms[side]
+            axis = a_thigh - b_thigh
+            length = np.linalg.norm(axis)
+            direction = axis / length if length > 1e-6 else np.array([0.0, 0.0, 1.0])
+
+            # Rotate shin direction forward (Y axis bend) for knee angle
+            # Find a perpendicular axis to rotate around (lateral axis)
+            up = np.array([0.0, 0.0, 1.0])
+            lateral = np.cross(direction, up)
+            if np.linalg.norm(lateral) < 1e-6:
+                lateral = np.array([0.0, 1.0, 0.0])
+            lateral = lateral / np.linalg.norm(lateral)
+            # Rodrigues rotation of direction around lateral axis
+            c, s = np.cos(shin_knee_bend), np.sin(shin_knee_bend)
+            shin_dir = direction * c + np.cross(lateral, direction) * s + lateral * np.dot(lateral, direction) * (1 - c)
+
+            # Shin top = thigh bottom, shin extends in bent direction
+            shin_top = b_thigh
+            shin_bottom = shin_top - 2.0 * shin_seg_half * shin_dir
+            a_world = R_base @ shin_top + t_base
+            b_world = R_base @ shin_bottom + t_base
+
+            capsule = Capsule()
+            capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
+            capsule.b = Point(x=float(b_world[0]), y=float(b_world[1]), z=float(b_world[2]))
+            capsule.radius = shin_radius
+            capsule.name = f'{side}_shin'
+            capsule_msg.capsules.append(capsule)
+            capsule_data.append((f'{side}_shin', shin_radius, shin_half_length, a_world, b_world))
 
         self.capsule_pub.publish(capsule_msg)
-        self.viz_pub.publish(viz_msg)
+
+        if self.get_parameter('publish_viz').value:
+            viz_msg = self._viz_capsules(stamp, capsule_data)
+            self.viz_pub.publish(viz_msg)
 
     _COLOR = (0.9, 0.5, 0.1, 0.3)  # orange for human
 

@@ -290,8 +290,9 @@ private:
             for (int i = 0; i < NUM_MOTOR; ++i)
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
-            // Override 8 upper body joints with CBF-filtered targets directly
-            for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
+            // Override 6 arm joints with CBF-filtered targets directly
+            // Skip waist_roll (i=0) and waist_pitch (i=1) — policy needs those for balance
+            for (int i = 2; i < NUM_UPPER_BODY_CMD; ++i)
                 cmd.position[UPPER_BODY_INDICES[i]] = upper_body_cmd_[i];
 
             static int print_counter = 0;
