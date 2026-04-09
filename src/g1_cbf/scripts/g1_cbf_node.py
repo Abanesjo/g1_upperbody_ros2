@@ -43,6 +43,7 @@ class G1CBFNode(Node):
         self.declare_parameter('max_velocity', 2.0)
         self.declare_parameter('lpf_gain', 0.0)
         self.declare_parameter('max_lead', 2.0)
+        self.declare_parameter('evaluate_at_actual', True)
         self.declare_parameter('publish_viz', False)
 
         dt = self.get_parameter('dt').value
@@ -207,8 +208,11 @@ class G1CBFNode(Node):
         dq_ref = K * (self.q_des_filtered - self.q_cbf_target)
         dq_ref = np.clip(dq_ref, -max_vel, max_vel)
 
-        # Pack for JAX — evaluate barriers at ACTUAL state
-        z = jnp.array(self.q_ctrl, dtype=jnp.float64)
+        # Pack for JAX — evaluate barriers at actual or target state
+        if self.get_parameter('evaluate_at_actual').value:
+            z = jnp.array(self.q_ctrl, dtype=jnp.float64)
+        else:
+            z = jnp.array(self.q_cbf_target, dtype=jnp.float64)
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
         q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
         human_caps, human_count = self._pack_human_capsules()

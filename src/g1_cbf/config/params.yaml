@@ -7,4 +7,5 @@ g1_cbf_node:
     max_velocity: 100.0  # rad/s velocity limit
     max_lead: 0.5        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
+    evaluate_at_actual: false  # true: barriers at actual state, false: barriers at target
     publish_viz: true # publish collision markers (/robot_colliders, /collision_distances)
