@@ -10,3 +10,6 @@
 [submodule "dependencies/cbfpy"]
 	path = dependencies/cbfpy
 	url = https://github.com/Abanesjo/cbfpy.git
+[submodule "dependencies/qpax"]
+	path = dependencies/qpax
+	url = https://github.com/kevin-tracy/qpax

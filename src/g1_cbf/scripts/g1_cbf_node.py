@@ -12,7 +12,9 @@ import os
 os.environ['JAX_ENABLE_X64'] = '1'
 
 import numpy as np
+import jax
 import jax.numpy as jnp
+import qpax
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
@@ -49,6 +51,8 @@ class G1CBFNode(Node):
         self.declare_parameter('sphere_radius_gain', 1.0)
         self.declare_parameter('beta', 1.05)
         self.declare_parameter('publish_viz', False)
+        self.declare_parameter('max_iter', 100)
+        self.declare_parameter('solver_tol', 1e-3)
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
@@ -72,8 +76,26 @@ class G1CBFNode(Node):
             sphere_interpolation_level=self.get_parameter('sphere_interpolation_level').value,
             sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
             beta=self.get_parameter('beta').value,
+            solver_tol=self.get_parameter('solver_tol').value,
         )
         self.cbf = CBF.from_config(config)
+
+        # Patch safety_filter to pass max_iter (cbfpy doesn't expose it)
+        max_iter = self.get_parameter('max_iter').value
+        cbf_ref = self.cbf
+
+        @jax.jit
+        def _safety_filter(z, u_des, *args, **kwargs):
+            P, q, A, b, G, h = cbf_ref.qp_data(z, u_des, *args, **kwargs)
+            x_qp = qpax.solve_qp_elastic_primal(
+                P, q, G, h,
+                penalty=jnp.asarray(cbf_ref.constraint_relaxation_penalties),
+                solver_tol=cbf_ref.solver_tol,
+                max_iter=max_iter,
+            )
+            return x_qp[:cbf_ref.m]
+
+        self.cbf.safety_filter = _safety_filter
 
         # Warmup call (JIT compilation)
         import time as _time
@@ -138,8 +160,10 @@ class G1CBFNode(Node):
             JointState, '/joint_commands', sensor_qos,
         )
 
-        # Timer
+        # Timers
         self.create_timer(dt, self._tick)
+        if self.get_parameter('publish_viz').value:
+            self.create_timer(0.1, self._viz_tick)  # 10 Hz, async from CBF
 
         self.get_logger().info(
             f'g1_cbf_node ready — publishing at {1.0/dt:.0f} Hz'
@@ -273,14 +297,16 @@ class G1CBFNode(Node):
 
         self.cmd_pub.publish(safe_msg)
 
-        # Visualization at actual state (outside hot path)
-        if self.get_parameter('publish_viz').value:
-            stamp = self.get_clock().now().to_msg()
-            self.viz.publish(stamp, self.q_ctrl, self.q_legs)
-            self.viz.publish_distances(
-                stamp, self.q_ctrl, self._human_capsules or None,
-                self.q_legs,
-            )
+    def _viz_tick(self):
+        """Publish visualization at 10 Hz, decoupled from CBF hot path."""
+        if self.q_ctrl is None:
+            return
+        stamp = self.get_clock().now().to_msg()
+        self.viz.publish(stamp, self.q_ctrl, self.q_legs)
+        self.viz.publish_distances(
+            stamp, self.q_ctrl, self._human_capsules or None,
+            self.q_legs,
+        )
 
     # ------------------------------------------------------------------
     # Helpers

@@ -9,7 +9,7 @@ from std_msgs.msg import ColorRGBA
 
 from g1_cbf.jax_kinematics import (
     capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII, N_BODIES,
-    COLLISION_PAIR_INDICES,
+    COLLISION_PAIR_INDICES, compute_sphere_counts,
 )
 
 _COLORS = {
@@ -80,6 +80,14 @@ def _axis_to_quat(a, b):
     return Rot.from_matrix(R).as_quat()
 
 
+def _np_sphere_centers(a, b, n):
+    """Interpolate n sphere centers between endpoints (numpy)."""
+    if n == 1:
+        return np.array([(a + b) / 2.0])
+    t = np.linspace(0.0, 1.0, n)
+    return (1.0 - t[:, None]) * b[None, :] + t[:, None] * a[None, :]
+
+
 class ColliderVisualizer:
     """Publishes MarkerArray for collision geometry."""
 
@@ -88,6 +96,7 @@ class ColliderVisualizer:
         self.geometry_type = geometry_type
         self.sphere_interp = sphere_interpolation_level
         self.sphere_rg = sphere_radius_gain
+        self.sphere_counts = compute_sphere_counts(sphere_interpolation_level)
         self.pub = node.create_publisher(
             MarkerArray, '/robot_colliders', 10,
         )
@@ -201,6 +210,27 @@ class ColliderVisualizer:
         msg = MarkerArray()
         idx = 0
 
+        if self.geometry_type == 'spheres':
+            idx = self._dist_spheres(stamp, msg, idx, a_all, b_all,
+                                     human_capsules)
+        else:
+            idx = self._dist_capsules(stamp, msg, idx, a_all, b_all,
+                                      human_capsules)
+
+        prev = getattr(self, '_prev_n_distances', 0)
+        for k in range(idx, prev):
+            m = Marker()
+            m.header.frame_id = 'pelvis'
+            m.header.stamp = stamp
+            m.ns = 'distances'
+            m.id = k
+            m.action = Marker.DELETE
+            msg.markers.append(m)
+        self._prev_n_distances = idx
+
+        self.dist_pub.publish(msg)
+
+    def _dist_capsules(self, stamp, msg, idx, a_all, b_all, human_capsules):
         for i, j in COLLISION_PAIR_INDICES:
             p1, p2 = _closest_points_segments(
                 a_all[i], b_all[i], a_all[j], b_all[j],
@@ -220,19 +250,37 @@ class ColliderVisualizer:
                         stamp, idx, p1, p2, (1.0, 0.5, 0.0, 1.0),
                     ))
                     idx += 1
+        return idx
 
-        prev = getattr(self, '_prev_n_distances', 0)
-        for k in range(idx, prev):
-            m = Marker()
-            m.header.frame_id = 'pelvis'
-            m.header.stamp = stamp
-            m.ns = 'distances'
-            m.id = k
-            m.action = Marker.DELETE
-            msg.markers.append(m)
-        self._prev_n_distances = idx
+    def _dist_spheres(self, stamp, msg, idx, a_all, b_all, human_capsules):
+        # Self-collision: line for every sphere-sphere pair
+        for i, j in COLLISION_PAIR_INDICES:
+            ci = _np_sphere_centers(a_all[i], b_all[i], self.sphere_counts[i])
+            cj = _np_sphere_centers(a_all[j], b_all[j], self.sphere_counts[j])
+            for si in range(self.sphere_counts[i]):
+                for sj in range(self.sphere_counts[j]):
+                    msg.markers.append(self._make_line(
+                        stamp, idx, ci[si], cj[sj], (1.0, 1.0, 0.0, 1.0),
+                    ))
+                    idx += 1
 
-        self.dist_pub.publish(msg)
+        # Human-robot: line for every robot-sphere to human-sphere pair
+        if human_capsules:
+            for hcap in human_capsules:
+                h_len = np.linalg.norm(hcap['a'] - hcap['b']) + 2.0 * hcap['radius']
+                h_n = max(1, round(h_len / (2.0 * hcap['radius'])))
+                h_centers = _np_sphere_centers(hcap['a'], hcap['b'], h_n)
+                for i in range(N_BODIES):
+                    ci = _np_sphere_centers(a_all[i], b_all[i],
+                                            self.sphere_counts[i])
+                    for si in range(self.sphere_counts[i]):
+                        for sj in range(len(h_centers)):
+                            msg.markers.append(self._make_line(
+                                stamp, idx, ci[si], h_centers[sj],
+                                (1.0, 0.5, 0.0, 1.0),
+                            ))
+                            idx += 1
+        return idx
 
     @staticmethod
     def _make_line(stamp, marker_id, p1, p2, color):

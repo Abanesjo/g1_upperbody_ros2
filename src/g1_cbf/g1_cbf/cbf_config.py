@@ -47,6 +47,7 @@ class G1CollisionCBFConfig(CBFConfig):
         sphere_interpolation_level: int = 0,
         sphere_radius_gain: float = 1.0,
         beta: float = 1.05,
+        solver_tol: float = 1e-3,
     ):
         self.gamma_val = gamma
         self.margin_phi = margin_phi
@@ -82,7 +83,7 @@ class G1CollisionCBFConfig(CBFConfig):
             u_max=max_velocity * jnp.ones(8),
             relax_qp=True,
             cbf_relaxation_penalty=1e4,
-            solver_tol=1e-3,
+            solver_tol=solver_tol,
             init_args=(dummy_legs, dummy_human, dummy_count),
         )
 
@@ -129,7 +130,7 @@ class G1CollisionCBFConfig(CBFConfig):
                     h_r[j], h_a[j], h_b[j],
                 )
                 barriers.append(jnp.where(
-                    j < human_count, phi - self.margin_phi, 1e6,
+                    j < human_count, phi - self.margin_phi, 1.0,
                 ))
 
         return jnp.array(barriers)
@@ -174,7 +175,7 @@ class G1CollisionCBFConfig(CBFConfig):
                         barriers.append(jnp.where(
                             j < human_count,
                             d_sq - r_sum_sq - self.margin_phi,
-                            1e6,
+                            1.0,
                         ))
 
         return jnp.array(barriers)
@@ -211,7 +212,7 @@ class G1CollisionCBFConfig(CBFConfig):
                     BOX_A, h_bvec, h_center, h_rot,
                 )
                 barriers.append(jnp.where(
-                    j < human_count, alpha - self.beta_val, 1e6,
+                    j < human_count, alpha - self.beta_val, 1.0,
                 ))
 
         return jnp.array(barriers)
