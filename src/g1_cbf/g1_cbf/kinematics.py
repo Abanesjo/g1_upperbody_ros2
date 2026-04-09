@@ -43,6 +43,20 @@ _COLLISION_BODIES = {
         'half_length': 0.20,
         'radius': 0.05,
     },
+    'left_shoulder': {
+        'frame': 'left_shoulder_roll_link',
+        'offset_xyz': np.array([0.0, 0.0, -0.09]),
+        'offset_rot': Rotation.identity(),
+        'half_length': 0.145,
+        'radius': 0.05,
+    },
+    'right_shoulder': {
+        'frame': 'right_shoulder_roll_link',
+        'offset_xyz': np.array([0.0, 0.0, -0.09]),
+        'offset_rot': Rotation.identity(),
+        'half_length': 0.145,
+        'radius': 0.05,
+    },
     'left_thigh': {
         'frame': 'left_hip_yaw_link',
         'offset_xyz': np.array([0.0, 0.0, 0.03]),
@@ -67,6 +81,8 @@ COLLISION_PAIRS = [
     ('left_arm', 'right_thigh'),
     ('right_arm', 'left_thigh'),
     ('right_arm', 'right_thigh'),
+    ('left_shoulder', 'right_arm'),
+    ('right_shoulder', 'left_arm'),
 ]
 
 
