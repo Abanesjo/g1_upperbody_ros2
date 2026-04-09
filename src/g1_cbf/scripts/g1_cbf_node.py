@@ -21,6 +21,7 @@ import tf2_ros
 from g1_cbf.kinematics import G1Kinematics, CONTROLLED_JOINTS, COLLISION_PAIRS
 from g1_cbf.qp_solver import CBFQPSolver
 from g1_cbf.collider_viz import ColliderVisualizer
+from g1_cbf_msg.msg import CapsuleArray
 
 
 class G1CBFNode(Node):
@@ -93,7 +94,9 @@ class G1CBFNode(Node):
         self.q_des_filtered = None
         self.q_cbf_target = None
         self._obstacles = []  # list of {center, rot, half_extents}
+        self._human_capsules = []  # list of {a, b, radius, name}
         self._zero_J6 = np.zeros((6, self.kin.n_q))
+        self._zero_J3 = np.zeros((3, self.kin.n_q))
 
         # Passthrough state for non-controlled joints
         self._passthrough_names = []
@@ -132,6 +135,10 @@ class G1CBFNode(Node):
         self.create_subscription(
             Detection3DArray, '/bbox_3d',
             self._bbox_cb, sensor_qos,
+        )
+        self.create_subscription(
+            CapsuleArray, '/human/colliders',
+            self._human_cb, sensor_qos,
         )
 
         # Publisher
@@ -205,6 +212,9 @@ class G1CBFNode(Node):
                 constraints, closest_points, metric_min,
             )
             self._build_obstacle_constraints(
+                constraints, closest_points,
+            )
+            self._build_human_box_constraints(
                 constraints, closest_points,
             )
         elif self.geom_type == 'spheres':
@@ -297,12 +307,10 @@ class G1CBFNode(Node):
             constraints.append((A_row, b_val))
             closest_points.append((p1, p2))
 
-            # margin_phi = self.get_parameter('margin_phi').value
-            # if phi < 3.0 * margin_phi:
-            #     self.get_logger().info(
-            #         f'phi_min={phi:.6f} margin={margin_phi}',
-            #         throttle_duration_sec=0.2,
-            #     )
+        # Human-robot collision constraints
+        self._build_human_capsule_constraints(
+            constraints, closest_points, endpoints,
+        )
 
     def _build_sphere_constraints(self, constraints, closest_points,
                                   metric_min):
@@ -325,6 +333,11 @@ class G1CBFNode(Node):
             )
             constraints.extend(pair_constraints)
             closest_points.extend(pair_points)
+
+        # Human-robot sphere constraints
+        self._build_human_sphere_constraints(
+            constraints, closest_points, sphere_data,
+        )
 
         return sphere_data
 
@@ -431,6 +444,124 @@ class G1CBFNode(Node):
                 #         f'obstacle alpha={alpha:.4f} body={body_name}',
                 #         throttle_duration_sec=0.2,
                 #     )
+
+    def _human_cb(self, msg: CapsuleArray):
+        capsules = []
+        for c in msg.capsules:
+            capsules.append({
+                'a': np.array([c.a.x, c.a.y, c.a.z]),
+                'b': np.array([c.b.x, c.b.y, c.b.z]),
+                'radius': c.radius,
+                'name': c.name,
+            })
+        self._human_capsules = capsules
+
+    def _build_human_capsule_constraints(self, constraints, closest_points,
+                                         endpoints):
+        """Build CBF constraints between every robot collider and every human capsule."""
+        if not self._human_capsules:
+            return
+        for hcap in self._human_capsules:
+            for robot_name, eR in endpoints.items():
+                phi, A_row, b_val, p1, p2 = self.cbf.build_constraint(
+                    eR['radius'], eR['a'], eR['b'],
+                    eR['J_a'], eR['J_b'],
+                    hcap['radius'], hcap['a'], hcap['b'],
+                    self._zero_J3, self._zero_J3,
+                )
+                constraints.append((A_row, b_val))
+                closest_points.append((p1, p2))
+
+    def _decompose_capsule_to_spheres(self, a, b, radius):
+        """Decompose a capsule (endpoints + radius) into spheres.
+
+        Uses the same interpolation logic as G1Kinematics.get_sphere_decomposition.
+        Returns (centers, radius_scaled) where centers is (n, 3).
+        """
+        interp_level = self.get_parameter('sphere_interpolation_level').value
+        radius_gain = self.get_parameter('sphere_radius_gain').value
+
+        L = np.linalg.norm(a - b)
+        R = radius
+        n_base = max(1, round(L / (2.0 * R))) if L > 0 else 1
+        n_total = n_base + max(0, n_base - 1) * interp_level
+
+        if n_total == 1:
+            t_values = np.array([0.5])
+        else:
+            t_values = np.linspace(0.0, 1.0, n_total)
+
+        t = t_values[:, None]
+        centers = (1.0 - t) * b[None, :] + t * a[None, :]
+        return centers, R * radius_gain
+
+    def _build_human_sphere_constraints(self, constraints, closest_points,
+                                        sphere_data):
+        """Build sphere-sphere CBF constraints between robot and human."""
+        if not self._human_capsules:
+            return
+        n_q = self.kin.n_q
+        for hcap in self._human_capsules:
+            h_centers, h_radius = self._decompose_capsule_to_spheres(
+                hcap['a'], hcap['b'], hcap['radius'],
+            )
+            h_jacobians = np.zeros((len(h_centers), 3, n_q))
+
+            for robot_name, sR in sphere_data.items():
+                pair_constraints, pair_points = self.cbf.build_constraints_batch(
+                    sR['radius'], sR['centers'], sR['jacobians'],
+                    h_radius, h_centers, h_jacobians,
+                )
+                constraints.extend(pair_constraints)
+                closest_points.extend(pair_points)
+
+    def _capsule_to_box_params(self, a, b, radius):
+        """Convert capsule endpoints + radius to box center/rotation/half-extents."""
+        center = (a + b) / 2.0
+        axis = a - b
+        length = np.linalg.norm(axis)
+        half_length = length / 2.0 + radius
+
+        if length > 1e-6:
+            z_ax = axis / length
+            up = np.array([0.0, 0.0, 1.0])
+            if abs(np.dot(z_ax, up)) > 0.999:
+                up = np.array([1.0, 0.0, 0.0])
+            x_ax = np.cross(up, z_ax)
+            x_ax /= np.linalg.norm(x_ax)
+            y_ax = np.cross(z_ax, x_ax)
+            rot = np.column_stack([x_ax, y_ax, z_ax])
+        else:
+            rot = np.eye(3)
+            half_length = radius
+
+        half_extents = np.array([radius, radius, half_length])
+        return center, rot, half_extents
+
+    def _build_human_box_constraints(self, constraints, closest_points):
+        """Build box-box CBF constraints between robot and human."""
+        if not self._human_capsules:
+            return
+        from g1_cbf.cbf import _box_b_from_half_extents
+
+        for hcap in self._human_capsules:
+            h_center, h_rot, h_half = self._capsule_to_box_params(
+                hcap['a'], hcap['b'], hcap['radius'],
+            )
+            h_b = _box_b_from_half_extents(h_half)
+
+            for body_name in self.kin.collision_bodies:
+                bodyA = self.kin.collision_bodies[body_name]
+                centerA, rotA = self.kin.get_collision_pose(body_name)
+                J6_A = self.kin.get_collision_jacobian(body_name)
+
+                alpha, A_row, b_val, p1, p2 = self.cbf.build_constraint(
+                    bodyA, centerA, rotA, J6_A,
+                    None, h_center, h_rot, self._zero_J6,
+                    b_override_B=h_b,
+                )
+                constraints.append((A_row, b_val))
+                closest_points.append((p1, p2))
 
     def _extract_controlled(self, msg: JointState):
         name_to_pos = dict(zip(msg.name, msg.position))

@@ -16,7 +16,7 @@ Panels:
         - /Collision Distances1/Namespaces1
         - /Obstacle Markers1
       Splitter Ratio: 0.5
-    Tree Height: 488
+    Tree Height: 365
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -550,6 +550,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /obstacle_markers
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        human_colliders: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /human/collider_markers
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -596,25 +608,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 1.6509126424789429
+      Distance: 1.4194743633270264
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.03961346298456192
-        Y: -0.7129335999488831
-        Z: 0.029725950211286545
+        X: -0.020389582961797714
+        Y: 0.6634098291397095
+        Z: 0.14338813722133636
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.2597968876361847
+      Pitch: 0.18479695916175842
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 6.215720176696777
+      Yaw: 0.22252726554870605
     Saved: ~
 Window Geometry:
   Displays:
@@ -634,5 +646,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 938
-  X: 321
-  Y: 339
+  X: 631
+  Y: 83

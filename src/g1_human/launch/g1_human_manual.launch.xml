@@ -1,0 +1,13 @@
+<launch>
+  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29dof.urdf"/>
+
+  <node pkg="g1_human" exec="g1_human_node" name="g1_human_node" output="screen">
+    <param from="$(find-pkg-share g1_human)/config/human.yaml"/>
+    <param name="urdf_path" value="$(var urdf_file)"/>
+  </node>
+
+  <!-- Joint GUI remapped to human commands -->
+  <node pkg="g1_rl_deploy" exec="joint_command_gui" name="human_joint_gui" output="screen">
+    <remap from="/joint_commands" to="/human/joint_commands"/>
+  </node>
+</launch>
