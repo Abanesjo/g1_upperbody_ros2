@@ -42,6 +42,7 @@ class G1CBFNode(Node):
         self.declare_parameter('K', 5.0)
         self.declare_parameter('max_velocity', 2.0)
         self.declare_parameter('lpf_gain', 0.0)
+        self.declare_parameter('max_lead', 2.0)
         self.declare_parameter('publish_viz', False)
 
         dt = self.get_parameter('dt').value
@@ -188,7 +189,7 @@ class G1CBFNode(Node):
         max_vel = self.get_parameter('max_velocity').value
         lpf = self.get_parameter('lpf_gain').value
 
-        # Initialize targets on first tick
+        # Initialize on first tick
         if self.q_des_filtered is None:
             self.q_des_filtered = self.q_des_latest.copy()
         if self.q_cbf_target is None:
@@ -202,12 +203,12 @@ class G1CBFNode(Node):
         else:
             self.q_des_filtered = self.q_des_latest.copy()
 
-        # Proportional gain + velocity clamp
+        # Reference velocity: track desired from persistent target
         dq_ref = K * (self.q_des_filtered - self.q_cbf_target)
         dq_ref = np.clip(dq_ref, -max_vel, max_vel)
 
-        # Pack for JAX
-        z = jnp.array(self.q_cbf_target, dtype=jnp.float64)
+        # Pack for JAX — evaluate barriers at ACTUAL state
+        z = jnp.array(self.q_ctrl, dtype=jnp.float64)
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
         q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
         human_caps, human_count = self._pack_human_capsules()
@@ -219,8 +220,8 @@ class G1CBFNode(Node):
         # Integrate safe velocity into persistent target
         self.q_cbf_target += dq_safe * dt
 
-        # Clamp to prevent divergence
-        max_lead = 0.5
+        # Clamp target to stay near actual state
+        max_lead = self.get_parameter('max_lead').value
         self.q_cbf_target = np.clip(
             self.q_cbf_target,
             self.q_ctrl - max_lead,
@@ -247,12 +248,12 @@ class G1CBFNode(Node):
 
         self.cmd_pub.publish(safe_msg)
 
-        # Visualization (outside hot path)
+        # Visualization at actual state (outside hot path)
         if self.get_parameter('publish_viz').value:
             stamp = self.get_clock().now().to_msg()
-            self.viz.publish(stamp, self.q_cbf_target, self.q_legs)
+            self.viz.publish(stamp, self.q_ctrl, self.q_legs)
             self.viz.publish_distances(
-                stamp, self.q_cbf_target, self._human_capsules or None,
+                stamp, self.q_ctrl, self._human_capsules or None,
                 self.q_legs,
             )
 

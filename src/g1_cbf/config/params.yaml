@@ -1,9 +1,10 @@
 g1_cbf_node:
   ros__parameters:
     dt: 0.02
-    margin_phi: 0.05  # [m^2], minimum squared distance margin
+    margin_phi: 0.001  # [m^2], minimum squared distance margin
     gamma: 3.0        # CBF gain
-    K: 20.0           # proportional speed gain
+    K: 50.0           # proportional speed gain
     max_velocity: 100.0  # rad/s velocity limit
+    max_lead: 0.5        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
-    publish_viz: false # publish collision markers (/robot_colliders, /collision_distances)
+    publish_viz: true # publish collision markers (/robot_colliders, /collision_distances)
