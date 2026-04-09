@@ -8,4 +8,8 @@ g1_cbf_node:
     max_lead: 0.5        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
     evaluate_at_actual: false  # true: barriers at actual state, false: barriers at target
-    publish_viz: true # publish collision markers (/robot_colliders, /collision_distances)
+    collision_geometry: "capsules"  # 'capsules', 'spheres', or 'boxes'
+    sphere_interpolation_level: 1   # extra spheres between each base pair (spheres mode)
+    sphere_radius_gain: 1.0         # radius scaling (spheres mode)
+    beta: 1.05                      # box separation margin (boxes mode)
+    publish_viz: false # publish collision markers (/robot_colliders, /collision_distances)

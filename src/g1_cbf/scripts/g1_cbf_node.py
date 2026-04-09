@@ -44,16 +44,22 @@ class G1CBFNode(Node):
         self.declare_parameter('lpf_gain', 0.0)
         self.declare_parameter('max_lead', 2.0)
         self.declare_parameter('evaluate_at_actual', True)
+        self.declare_parameter('collision_geometry', 'capsules')
+        self.declare_parameter('sphere_interpolation_level', 0)
+        self.declare_parameter('sphere_radius_gain', 1.0)
+        self.declare_parameter('beta', 1.05)
         self.declare_parameter('publish_viz', False)
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
         margin_phi = self.get_parameter('margin_phi').value
         max_velocity = self.get_parameter('max_velocity').value
+        geom = self.get_parameter('collision_geometry').value
 
         self.get_logger().info(
             f'CBF params: dt={dt}, gamma={gamma}, '
-            f'margin_phi={margin_phi}, max_vel={max_velocity}'
+            f'margin_phi={margin_phi}, max_vel={max_velocity}, '
+            f'geometry={geom}'
         )
 
         # Build CBF (triggers JAX JIT warmup)
@@ -62,17 +68,27 @@ class G1CBFNode(Node):
             gamma=gamma,
             margin_phi=margin_phi,
             max_velocity=max_velocity,
+            collision_geometry=geom,
+            sphere_interpolation_level=self.get_parameter('sphere_interpolation_level').value,
+            sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
+            beta=self.get_parameter('beta').value,
         )
         self.cbf = CBF.from_config(config)
 
-        # Warmup call
+        # Warmup call (JIT compilation)
+        import time as _time
         _z = jnp.zeros(8)
         _u = jnp.zeros(8)
         _ql = jnp.zeros(N_LEG_JOINTS)
         _hc = jnp.zeros((N_HUMAN_CAPSULES, 7))
         _hn = jnp.array(0)
+        t0 = _time.monotonic()
         _ = self.cbf.safety_filter(_z, _u, _ql, _hc, _hn)
-        self.get_logger().info('CBF ready')
+        jit_time = _time.monotonic() - t0
+        self.get_logger().info(
+            f'CBF ready — {config.num_cbf} constraints '
+            f'({geom} mode), JIT compiled in {jit_time:.1f}s'
+        )
 
         # State
         self.q_ctrl = None   # (8,) current controlled joint positions
@@ -88,7 +104,12 @@ class G1CBFNode(Node):
         self._passthrough_ctrl_indices = {}
 
         # Visualization
-        self.viz = ColliderVisualizer(self)
+        self.viz = ColliderVisualizer(
+            self,
+            geometry_type=geom,
+            sphere_interpolation_level=self.get_parameter('sphere_interpolation_level').value,
+            sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
+        )
 
         # QoS: best-effort, volatile, depth 1
         sensor_qos = QoSProfile(

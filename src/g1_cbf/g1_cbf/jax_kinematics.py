@@ -258,7 +258,7 @@ N_HUMAN_CAPSULES = 9
 # Forward kinematics
 # ---------------------------------------------------------------------------
 
-def _fk_body_transforms(q, q_legs):
+def fk_body_transforms(q, q_legs):
     """Compute 4x4 world-frame transforms for each collision body's offset frame.
 
     Args:
@@ -338,7 +338,7 @@ def capsule_endpoints_all(q, q_legs=None):
     """
     if q_legs is None:
         q_legs = jnp.zeros(N_LEG_JOINTS)
-    transforms = _fk_body_transforms(q, q_legs)
+    transforms = fk_body_transforms(q, q_legs)
 
     a_list = []
     b_list = []
@@ -368,3 +368,97 @@ def capsule_endpoints_np(q_np, q_legs_np=None):
     ql_j = jnp.array(q_legs_np, dtype=jnp.float64) if q_legs_np is not None else None
     a, b = capsule_endpoints_all(q_j, ql_j)
     return np.asarray(a), np.asarray(b), np.asarray(RADII)
+
+
+# ---------------------------------------------------------------------------
+# Sphere decomposition helpers
+# ---------------------------------------------------------------------------
+
+def compute_sphere_counts(interpolation_level=0):
+    """Return n_spheres per body as a Python list (constant for JIT tracing).
+
+    Args:
+        interpolation_level: extra spheres inserted between each adjacent base pair.
+
+    Returns:
+        List of int, length N_BODIES.
+    """
+    hl = np.asarray(HALF_LENGTHS)
+    r = np.asarray(RADII)
+    counts = []
+    for i in range(N_BODIES):
+        L = 2.0 * float(hl[i])
+        R = float(r[i])
+        n_base = max(1, round(L / (2.0 * R)))
+        n_total = n_base + max(0, n_base - 1) * interpolation_level
+        counts.append(n_total)
+    return counts
+
+
+def compute_max_human_spheres(interpolation_level=0, max_capsule_length=0.6, min_radius=0.05):
+    """Max spheres a human capsule could decompose into (for static JAX shapes).
+
+    Based on the longest possible human capsule (extended thigh/shin).
+    """
+    n_base = max(1, round(max_capsule_length / (2.0 * min_radius)))
+    return n_base + max(0, n_base - 1) * interpolation_level
+
+
+def sphere_centers(a, b, n):
+    """Interpolate n sphere centers between capsule endpoints.
+
+    Args:
+        a: (3,) endpoint a (jnp).
+        b: (3,) endpoint b (jnp).
+        n: int, number of spheres (Python constant).
+
+    Returns:
+        (n, 3) jnp array of sphere centers.
+    """
+    if n == 1:
+        return jnp.array([(a + b) / 2.0])
+    t = jnp.linspace(0.0, 1.0, n)
+    return (1.0 - t[:, None]) * b[None, :] + t[:, None] * a[None, :]
+
+
+# ---------------------------------------------------------------------------
+# Box mode helpers
+# ---------------------------------------------------------------------------
+
+# Box halfspace normals: 6 faces of an axis-aligned box (Ax <= b)
+BOX_A = jnp.array([
+    [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+    [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0],
+])
+
+# Pre-compute box b-vectors for each body: [radius, radius, half_length] repeated
+BOX_B = jnp.array([
+    [float(RADII[i]), float(RADII[i]), float(HALF_LENGTHS[i]),
+     float(RADII[i]), float(RADII[i]), float(HALF_LENGTHS[i])]
+    for i in range(N_BODIES)
+])
+
+
+def capsule_to_box_params(a, b, radius):
+    """Convert capsule endpoints + radius to box center/rotation/b-vector.
+
+    For human capsules (not in BODY_NAMES). Returns (center, rotation, b_vec).
+    """
+    center = (a + b) / 2.0
+    axis = a - b
+    length = jnp.linalg.norm(axis)
+    half_length = length / 2.0 + radius
+
+    # Build rotation aligning Z with capsule axis
+    z_ax = axis / jnp.maximum(length, 1e-8)
+    # Choose perpendicular axis
+    up = jnp.array([0.0, 0.0, 1.0])
+    dot = jnp.abs(jnp.dot(z_ax, up))
+    up = jnp.where(dot > 0.999, jnp.array([1.0, 0.0, 0.0]), up)
+    x_ax = jnp.cross(up, z_ax)
+    x_ax = x_ax / jnp.linalg.norm(x_ax)
+    y_ax = jnp.cross(z_ax, x_ax)
+    rot = jnp.column_stack([x_ax, y_ax, z_ax])
+
+    b_vec = jnp.array([radius, radius, half_length, radius, radius, half_length])
+    return center, rot, b_vec

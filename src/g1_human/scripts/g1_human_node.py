@@ -47,6 +47,9 @@ class G1HumanNode(Node):
         self.declare_parameter('human_yaw', 3.14159)
         self.declare_parameter('rate', 50.0)
         self.declare_parameter('publish_viz', False)
+        self.declare_parameter('collision_geometry', 'capsules')
+        self.declare_parameter('sphere_interpolation_level', 0)
+        self.declare_parameter('sphere_radius_gain', 1.0)
 
         # Joint state: 8 controlled joints, default neutral (zeros)
         self.q_controlled = np.zeros(8)
@@ -195,7 +198,13 @@ class G1HumanNode(Node):
         self.capsule_pub.publish(capsule_msg)
 
         if self.get_parameter('publish_viz').value:
-            viz_msg = self._viz_capsules(stamp, capsule_data)
+            geom = self.get_parameter('collision_geometry').value
+            if geom == 'spheres':
+                viz_msg = self._viz_spheres(stamp, capsule_data)
+            elif geom == 'boxes':
+                viz_msg = self._viz_boxes(stamp, capsule_data)
+            else:
+                viz_msg = self._viz_capsules(stamp, capsule_data)
             self.viz_pub.publish(viz_msg)
 
     _COLOR = (0.9, 0.5, 0.1, 0.3)  # orange for human
@@ -222,17 +231,7 @@ class G1HumanNode(Node):
                 ))
                 mid += 1
 
-        # Clean stale markers
-        prev = getattr(self, '_prev_n_markers', 0)
-        for j in range(mid, prev):
-            m = Marker()
-            m.header.frame_id = 'pelvis'
-            m.header.stamp = stamp
-            m.ns = 'human_colliders'
-            m.id = j
-            m.action = Marker.DELETE
-            msg.markers.append(m)
-        self._prev_n_markers = mid
+        self._cleanup_stale(stamp, msg, mid)
         return msg
 
     def _axis_to_quat(self, a_world, b_world):
@@ -270,6 +269,61 @@ class G1HumanNode(Node):
         r, g, b, a = self._COLOR
         m.color = ColorRGBA(r=r, g=g, b=b, a=a)
         return m
+
+    def _cleanup_stale(self, stamp, msg, mid):
+        prev = getattr(self, '_prev_n_markers', 0)
+        for j in range(mid, prev):
+            m = Marker()
+            m.header.frame_id = 'pelvis'
+            m.header.stamp = stamp
+            m.ns = 'human_colliders'
+            m.id = j
+            m.action = Marker.DELETE
+            msg.markers.append(m)
+        self._prev_n_markers = mid
+
+    def _viz_boxes(self, stamp, capsule_data):
+        msg = MarkerArray()
+        mid = 0
+        for name, radius, half_length, a_world, b_world in capsule_data:
+            center = (a_world + b_world) / 2.0
+            quat = self._axis_to_quat(a_world, b_world)
+            msg.markers.append(self._make_marker(
+                stamp, mid, Marker.CUBE, center, quat,
+                2.0 * radius, 2.0 * radius, 2.0 * half_length,
+            ))
+            mid += 1
+        self._cleanup_stale(stamp, msg, mid)
+        return msg
+
+    def _viz_spheres(self, stamp, capsule_data):
+        interp = self.get_parameter('sphere_interpolation_level').value
+        rg = self.get_parameter('sphere_radius_gain').value
+        msg = MarkerArray()
+        mid = 0
+        identity_quat = [0.0, 0.0, 0.0, 1.0]
+
+        for name, radius, half_length, a_world, b_world in capsule_data:
+            L = 2.0 * half_length  # full capsule length, not segment
+            n_base = max(1, round(L / (2.0 * radius)))
+            n_total = n_base + max(0, n_base - 1) * interp
+            diam = 2.0 * radius * rg
+
+            if n_total == 1:
+                t_values = [0.5]
+            else:
+                t_values = np.linspace(0.0, 1.0, n_total)
+
+            for t in t_values:
+                c = (1.0 - t) * b_world + t * a_world
+                msg.markers.append(self._make_marker(
+                    stamp, mid, Marker.SPHERE, c,
+                    identity_quat, diam, diam, diam,
+                ))
+                mid += 1
+
+        self._cleanup_stale(stamp, msg, mid)
+        return msg
 
 
 def main(args=None):
