@@ -1,9 +1,10 @@
 g1_cbf_node:
   ros__parameters:
     use_gpu: false
+    publish_viz: false
     
     dt: 0.1
-    collision_geometry: "capsules" #'capsules', 'boxes', or 'spheres'
+    collision_geometry: "spheres" #'capsules', 'boxes', or 'spheres'
 
     #sphere decomposition params (only used when collision_geometry: "spheres")
     sphere_interpolation_level: 1  # int, N extra spheres between each adjacent base pair

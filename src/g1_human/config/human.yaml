@@ -11,9 +11,10 @@ g1_human_node:
     human_yaw: 0.0
 
     # Collision geometry visualization: 'capsules', 'boxes', or 'spheres'
-    collision_geometry: "capsules"
-    sphere_interpolation_level: 0
+    collision_geometry: "spheres"
+    sphere_interpolation_level: 1
     sphere_radius_gain: 1.0
 
     # Publish rate [Hz]
     rate: 50.0
+    publish_viz: false

@@ -41,6 +41,7 @@ class G1CBFNode(Node):
         self.declare_parameter('sphere_interpolation_level', 0)
         self.declare_parameter('sphere_radius_gain', 1.0)
         self.declare_parameter('use_gpu', False)
+        self.declare_parameter('publish_viz', True)
 
         # Set JAX config before importing cbf module
         use_gpu = self.get_parameter('use_gpu').value
@@ -67,6 +68,9 @@ class G1CBFNode(Node):
         self.kin = G1Kinematics(urdf_path)
         self.get_logger().info('Initializing dpax CBF (JAX JIT warmup)...')
 
+        import time as _time
+        t0 = _time.monotonic()
+
         if self.geom_type == 'boxes':
             beta = self.get_parameter('beta').value
             self.cbf = DpaxBoxCBF(gamma=gamma, beta=beta)
@@ -79,7 +83,10 @@ class G1CBFNode(Node):
                 gamma=gamma, margin_phi=margin_phi,
             )
 
-        self.get_logger().info('dpax CBF ready')
+        jit_time = _time.monotonic() - t0
+        self.get_logger().info(
+            f'dpax CBF ready — JIT compiled in {jit_time:.1f}s'
+        )
         self.qp = CBFQPSolver(
             n_joints=self.kin.n_q,
             n_cbf=len(COLLISION_PAIRS),
@@ -206,8 +213,11 @@ class G1CBFNode(Node):
         metric_min = float('inf')
         stamp = self.get_clock().now().to_msg()
 
+        publish_viz = self.get_parameter('publish_viz').value
+
         if self.geom_type == 'boxes':
-            self.viz.publish(stamp)
+            if publish_viz:
+                self.viz.publish(stamp)
             self._build_box_constraints(
                 constraints, closest_points, metric_min,
             )
@@ -221,9 +231,11 @@ class G1CBFNode(Node):
             sphere_data = self._build_sphere_constraints(
                 constraints, closest_points, metric_min,
             )
-            self.viz.publish_spheres(stamp, sphere_data)
+            if publish_viz:
+                self.viz.publish_spheres(stamp, sphere_data)
         else:
-            self.viz.publish(stamp)
+            if publish_viz:
+                self.viz.publish(stamp)
             self._build_capsule_constraints(
                 constraints, closest_points, metric_min,
             )
@@ -239,9 +251,10 @@ class G1CBFNode(Node):
                 )
 
         # Publish distance lines
-        self.viz.publish_distances(
-            self.get_clock().now().to_msg(), closest_points,
-        )
+        if publish_viz:
+            self.viz.publish_distances(
+                self.get_clock().now().to_msg(), closest_points,
+            )
 
         # Solve QP
         dq_safe = self.qp.solve(
@@ -481,8 +494,9 @@ class G1CBFNode(Node):
         interp_level = self.get_parameter('sphere_interpolation_level').value
         radius_gain = self.get_parameter('sphere_radius_gain').value
 
-        L = np.linalg.norm(a - b)
+        seg_len = np.linalg.norm(a - b)
         R = radius
+        L = seg_len + 2.0 * R  # full capsule length including hemispherical caps
         n_base = max(1, round(L / (2.0 * R))) if L > 0 else 1
         n_total = n_base + max(0, n_base - 1) * interp_level
 
