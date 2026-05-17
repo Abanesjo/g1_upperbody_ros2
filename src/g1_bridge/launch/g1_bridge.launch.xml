@@ -1,0 +1,15 @@
+<launch>
+  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29dof.urdf"/>
+  <arg name="rviz" default="true"/>
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
+  </node>
+
+  <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
+    <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+  </node>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" if="$(var rviz)"
+        args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
+</launch>

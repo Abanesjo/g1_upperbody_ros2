@@ -1,0 +1,61 @@
+<launch>
+  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29dof.urdf"/>
+  <arg name="rviz" default="false"/>
+  <arg name="ghost" default="true"/>
+  <arg name="bridge" default="true"/>
+  <arg name="viz" default="false"/>
+  <arg name="viz_rate" default="5.0"/>
+
+  <!-- ==================== g1_bridge ==================== -->
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
+  </node>
+
+  <group if="$(var bridge)">
+    <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
+      <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+    </node>
+  </group>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" if="$(var rviz)"
+        args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
+
+  <!-- ==================== g1_cbf ==================== -->
+  <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="urdf_path" value="$(var urdf_file)"/>
+    <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
+    <remap from="/joint_commands" to="/upper_body_targets"/>
+  </node>
+
+  <!-- Isolated, rate-limited marker publisher for RViz -->
+  <group if="$(var viz)">
+    <node pkg="g1_cbf" exec="g1_cbf_viz_node" name="g1_cbf_viz_node" output="screen">
+      <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+      <param name="publish_viz" value="true"/>
+      <param name="viz_rate" value="$(var viz_rate)"/>
+    </node>
+  </group>
+
+  <group if="$(var ghost)">
+    <node pkg="g1_cbf" exec="ghost_publisher_node" name="ghost_publisher_node" output="screen">
+      <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
+    </node>
+    <node pkg="robot_state_publisher" exec="robot_state_publisher" name="ghost_robot_state_publisher" output="screen">
+      <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
+      <param name="frame_prefix" value="ghost/"/>
+      <remap from="joint_states" to="/ghost/joint_states"/>
+    </node>
+  </group>
+
+  <!-- ==================== g1_rl_deploy ==================== -->
+  <!-- Full-body policy: /cmd_vel + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
+  <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
+    <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
+  </node>
+
+  <!-- ==================== GUI sliders ==================== -->
+  <node pkg="g1_rl_deploy" exec="joint_command_gui" name="joint_command_gui" output="screen">
+    <remap from="/joint_commands" to="/upper_body_targets_unsafe"/>
+  </node>
+</launch>

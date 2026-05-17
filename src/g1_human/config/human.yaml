@@ -1,0 +1,19 @@
+g1_human_node:
+  ros__parameters:
+    # Transform from robot pelvis to human pelvis
+    # Position [m]
+    human_x: 0.0
+    human_y: 0.8
+    human_z: 0.0
+    # Orientation as RPY [rad]
+    human_roll: 0.0
+    human_pitch: 0.0
+    human_yaw: 0.0
+
+    # Publish rate [Hz]
+    rate: 50.0
+    publish_viz: true
+    collision_geometry: "spheres"  # match params.yaml: 'capsules', 'spheres', or 'boxes'
+    sphere_interpolation_level: 1
+    sphere_radius_gain: 1.0
+    human_radius_scale: 1.5

@@ -8,27 +8,19 @@
 #  5  left_ankle_roll        11  right_ankle_roll
 #
 # 12  waist_yaw
-# 13  waist_roll            *
-# 14  waist_pitch           *
+# 13  waist_roll           U
+# 14  waist_pitch          U
 #
-# 15  left_shoulder_pitch   *  22  right_shoulder_pitch  *
-# 16  left_shoulder_roll    *  23  right_shoulder_roll   *
+# 15  left_shoulder_pitch  U  22  right_shoulder_pitch  U
+# 16  left_shoulder_roll   U  23  right_shoulder_roll   U
 # 17  left_shoulder_yaw        24  right_shoulder_yaw
-# 18  left_elbow            *  25  right_elbow           *
-# 19  left_wrist_roll            26  right_wrist_roll
-# 20  left_wrist_pitch           27  right_wrist_pitch
-# 21  left_wrist_yaw             28  right_wrist_yaw
+# 18  left_elbow           U  25  right_elbow           U
+# 19  left_wrist_roll          26  right_wrist_roll
+# 20  left_wrist_pitch         27  right_wrist_pitch
+# 21  left_wrist_yaw           28  right_wrist_yaw
 #
-# * = upper body controlled joints (8 total)
-#     subscribed via /joint_commands in this order:
-#       [0] waist_roll            (index 13)
-#       [1] waist_pitch           (index 14)
-#       [2] left_shoulder_pitch   (index 15)
-#       [3] left_shoulder_roll    (index 16)
-#       [4] left_elbow            (index 18)
-#       [5] right_shoulder_pitch  (index 22)
-#       [6] right_shoulder_roll   (index 23)
-#       [7] right_elbow           (index 25)
+# All 29 joints controlled by RL policy via /joint_commands
+# U = upper body (8) — CBF-filtered targets fed as observation to policy
 
 g1_rl_deploy_node:
   ros__parameters:
@@ -36,7 +28,6 @@ g1_rl_deploy_node:
 
     # Timing
     control_dt: 0.02        # 50 Hz policy inference
-    publish_dt: 0.002       # 500 Hz command republish
     standup_duration: 3.0   # seconds to interpolate to home pose
     gait_period: 0.6        # phase oscillator period (seconds)
 
@@ -46,33 +37,16 @@ g1_rl_deploy_node:
       lin_vel_y: [-0.5, 0.5]
       ang_vel_z: [-1.0, 1.0]
 
-    # Upper body controlled joint indices (into 29-DOF motor array)
-    upper_body_joint_indices: [13, 14, 15, 16, 18, 22, 23, 25]
-
-    # Per-joint stiffness (kp) — 29 DOF
-    kp: [40.2, 99.1, 40.2, 99.1, 28.5, 28.5,     # left leg
-         40.2, 99.1, 40.2, 99.1, 28.5, 28.5,      # right leg
-         40.2, 28.5, 28.5,                          # waist
-         14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8, # left arm
-         14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8] # right arm
-
-    # Per-joint damping (kd) — 29 DOF
-    kd: [2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
-         2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
-         2.6, 1.8, 1.8,
-         0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1,
-         0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1]
-
-    # Default joint positions (home pose / action offset) — 29 DOF
+    # Default joint positions (home pose) — all 29 DOF
     default_joint_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,     # left leg
                         -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,      # right leg
                          0.0, 0.0, 0.0,                        # waist
                          0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0, # left arm
                          0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0] # right arm
 
-    # Per-joint action scale — 29 DOF
-    action_scale: [0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
-                   0.55, 0.35, 0.55, 0.35, 0.44, 0.44,
-                   0.35, 0.44, 0.44,
-                   0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07,
-                   0.44, 0.44, 0.44, 0.44, 0.44, 0.07, 0.07]
+    # Per-joint action scale — all 29 joints (0.25 * effort_limit / stiffness)
+    action_scale: [0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # left leg
+                   0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # right leg
+                   0.5475, 0.4386, 0.4386,                             # waist
+                   0.4386, 0.4386, 0.4386, 0.4386, 0.4386, 0.0745, 0.0745, # left arm
+                   0.4386, 0.4386, 0.4386, 0.4386, 0.4386, 0.0745, 0.0745] # right arm

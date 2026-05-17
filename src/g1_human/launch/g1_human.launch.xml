@@ -1,0 +1,9 @@
+<launch>
+  <node pkg="g1_human" exec="g1_human_node" name="g1_human_node" output="screen">
+    <param from="$(find-pkg-share g1_human)/config/human.yaml"/>
+  </node>
+
+  <node pkg="g1_rl_deploy" exec="motion_playback" name="motion_playback" output="screen">
+    <remap from="/joint_commands" to="/human/joint_commands"/>
+  </node>
+</launch>

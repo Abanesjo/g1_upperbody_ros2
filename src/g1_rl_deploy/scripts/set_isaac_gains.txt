@@ -1,0 +1,54 @@
+import omni.usd
+from pxr import UsdPhysics
+
+GAINS = {
+    "left_hip_pitch_joint":      (40.2,  2.6),
+    "left_hip_roll_joint":       (99.1,  6.3),
+    "left_hip_yaw_joint":        (40.2,  2.6),
+    "left_knee_joint":           (99.1,  6.3),
+    "left_ankle_pitch_joint":    (28.5,  1.8),
+    "left_ankle_roll_joint":     (28.5,  1.8),
+    "right_hip_pitch_joint":     (40.2,  2.6),
+    "right_hip_roll_joint":      (99.1,  6.3),
+    "right_hip_yaw_joint":       (40.2,  2.6),
+    "right_knee_joint":          (99.1,  6.3),
+    "right_ankle_pitch_joint":   (28.5,  1.8),
+    "right_ankle_roll_joint":    (28.5,  1.8),
+    "waist_yaw_joint":           (40.2,  2.6),
+    "waist_roll_joint":          (28.5,  1.8),
+    "waist_pitch_joint":         (28.5,  1.8),
+    "left_shoulder_pitch_joint": (14.3,  0.9),
+    "left_shoulder_roll_joint":  (14.3,  0.9),
+    "left_shoulder_yaw_joint":   (14.3,  0.9),
+    "left_elbow_joint":          (14.3,  0.9),
+    "left_wrist_roll_joint":     (14.3,  0.9),
+    "left_wrist_pitch_joint":    (16.8,  1.1),
+    "left_wrist_yaw_joint":      (16.8,  1.1),
+    "right_shoulder_pitch_joint":(14.3,  0.9),
+    "right_shoulder_roll_joint": (14.3,  0.9),
+    "right_shoulder_yaw_joint":  (14.3,  0.9),
+    "right_elbow_joint":         (14.3,  0.9),
+    "right_wrist_roll_joint":    (14.3,  0.9),
+    "right_wrist_pitch_joint":   (16.8,  1.1),
+    "right_wrist_yaw_joint":     (16.8,  1.1),
+}
+
+stage = omni.usd.get_context().get_stage()
+count = 0
+
+for prim in stage.Traverse():
+    if not prim.IsA(UsdPhysics.RevoluteJoint) and not prim.IsA(UsdPhysics.Joint):
+        continue
+    name = prim.GetName()
+    if name not in GAINS:
+        continue
+    kp, kd = GAINS[name]
+    drive = UsdPhysics.DriveAPI.Get(prim, "angular")
+    if not drive:
+        drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
+    drive.GetStiffnessAttr().Set(float(kp))
+    drive.GetDampingAttr().Set(float(kd))
+    print(f"Set {name}: kp={kp}, kd={kd}")
+    count += 1
+
+print(f"\nDone. Updated {count}/{len(GAINS)} joints.")
