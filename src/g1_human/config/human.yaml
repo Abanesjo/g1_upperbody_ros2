@@ -12,7 +12,7 @@ g1_human_node:
 
     # Publish rate [Hz]
     rate: 50.0
-    publish_viz: false
+    publish_viz: true
     collision_geometry: "capsules"  # match params.yaml: 'capsules', 'spheres', or 'boxes'
-    sphere_interpolation_level: 0
+    sphere_interpolation_level: 1
     sphere_radius_gain: 1.0

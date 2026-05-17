@@ -53,6 +53,8 @@ class G1CBFNode(Node):
         self.declare_parameter('publish_viz', False)
         self.declare_parameter('max_iter', 100)
         self.declare_parameter('solver_tol', 1e-3)
+        self.declare_parameter('human_half_lengths', [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.225, 0.225])
+        self.declare_parameter('human_radii', [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.065, 0.065])
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
@@ -77,6 +79,8 @@ class G1CBFNode(Node):
             sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
             beta=self.get_parameter('beta').value,
             solver_tol=self.get_parameter('solver_tol').value,
+            human_half_lengths=list(self.get_parameter('human_half_lengths').value),
+            human_radii=list(self.get_parameter('human_radii').value),
         )
         self.cbf = CBF.from_config(config)
 

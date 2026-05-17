@@ -20,7 +20,7 @@ from g1_cbf.jax_kinematics import (
     capsule_endpoints_all,
     fk_body_transforms,
     compute_sphere_counts,
-    compute_max_human_spheres,
+    compute_human_sphere_counts,
     sphere_centers,
     capsule_to_box_params,
     COLLISION_PAIR_INDICES,
@@ -48,6 +48,8 @@ class G1CollisionCBFConfig(CBFConfig):
         sphere_radius_gain: float = 1.0,
         beta: float = 1.05,
         solver_tol: float = 1e-3,
+        human_half_lengths: list = None,
+        human_radii: list = None,
     ):
         self.gamma_val = gamma
         self.margin_phi = margin_phi
@@ -58,14 +60,18 @@ class G1CollisionCBFConfig(CBFConfig):
         # Compute barrier count based on geometry mode
         if self.geom == 'spheres':
             self.sphere_counts = compute_sphere_counts(sphere_interpolation_level)
-            self.human_spheres_per_cap = compute_max_human_spheres(sphere_interpolation_level)
+            self.human_sphere_counts = compute_human_sphere_counts(
+                human_half_lengths or [], human_radii or [],
+                sphere_interpolation_level,
+            )
             n_self = sum(
                 self.sphere_counts[i] * self.sphere_counts[j]
                 for i, j in COLLISION_PAIR_INDICES
             )
-            # Human: each robot body's spheres × each human capsule's spheres
-            n_human = sum(self.sphere_counts[i] for i in range(N_BODIES)) \
-                * self.human_spheres_per_cap * N_HUMAN_CAPSULES
+            n_human = sum(
+                self.sphere_counts[i] * self.human_sphere_counts[j]
+                for i in range(N_BODIES) for j in range(N_HUMAN_CAPSULES)
+            )
         else:
             # Capsules and boxes: 1 barrier per pair
             n_self = N_SELF_PAIRS
@@ -160,17 +166,16 @@ class G1CollisionCBFConfig(CBFConfig):
         h_a = human_capsules[:, :3]
         h_b = human_capsules[:, 3:6]
         h_r = human_capsules[:, 6]
-        n_hs = self.human_spheres_per_cap
 
         for i in range(N_BODIES):
             ci = sphere_centers(a_robot[i], b_robot[i], self.sphere_counts[i])
             ri = RADII[i] * rg
             for j in range(N_HUMAN_CAPSULES):
-                # Decompose human capsule j into spheres
-                hj_centers = sphere_centers(h_a[j], h_b[j], n_hs)
+                n_hs_j = self.human_sphere_counts[j]
+                hj_centers = sphere_centers(h_a[j], h_b[j], n_hs_j)
                 r_sum_sq = (ri + h_r[j] * rg) ** 2
                 for si in range(self.sphere_counts[i]):
-                    for sj in range(n_hs):
+                    for sj in range(n_hs_j):
                         d_sq = jnp.sum((ci[si] - hj_centers[sj]) ** 2)
                         barriers.append(jnp.where(
                             j < human_count,

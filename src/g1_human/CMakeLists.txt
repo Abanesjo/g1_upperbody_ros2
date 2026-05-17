@@ -4,7 +4,7 @@ project(g1_human)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
-install(DIRECTORY launch config
+install(DIRECTORY launch config motions
   DESTINATION share/${PROJECT_NAME}
 )
 

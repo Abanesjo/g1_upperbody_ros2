@@ -236,7 +236,7 @@ class ColliderVisualizer:
                 a_all[i], b_all[i], a_all[j], b_all[j],
             )
             msg.markers.append(self._make_line(
-                stamp, idx, p1, p2, (1.0, 1.0, 0.0, 1.0),
+                stamp, idx, p1, p2, (1.0, 1.0, 0.0, 0.5),
             ))
             idx += 1
 
@@ -247,7 +247,7 @@ class ColliderVisualizer:
                         a_all[i], b_all[i], hcap['a'], hcap['b'],
                     )
                     msg.markers.append(self._make_line(
-                        stamp, idx, p1, p2, (1.0, 0.5, 0.0, 1.0),
+                        stamp, idx, p1, p2, (1.0, 0.5, 0.0, 0.5),
                     ))
                     idx += 1
         return idx
@@ -260,7 +260,7 @@ class ColliderVisualizer:
             for si in range(self.sphere_counts[i]):
                 for sj in range(self.sphere_counts[j]):
                     msg.markers.append(self._make_line(
-                        stamp, idx, ci[si], cj[sj], (1.0, 1.0, 0.0, 1.0),
+                        stamp, idx, ci[si], cj[sj], (1.0, 1.0, 0.0, 0.5),
                     ))
                     idx += 1
 
@@ -277,7 +277,7 @@ class ColliderVisualizer:
                         for sj in range(len(h_centers)):
                             msg.markers.append(self._make_line(
                                 stamp, idx, ci[si], h_centers[sj],
-                                (1.0, 0.5, 0.0, 1.0),
+                                (1.0, 0.5, 0.0, 0.5),
                             ))
                             idx += 1
         return idx

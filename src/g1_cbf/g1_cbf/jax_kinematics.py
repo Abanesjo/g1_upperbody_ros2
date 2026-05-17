@@ -395,13 +395,24 @@ def compute_sphere_counts(interpolation_level=0):
     return counts
 
 
-def compute_max_human_spheres(interpolation_level=0, max_capsule_length=0.6, min_radius=0.05):
-    """Max spheres a human capsule could decompose into (for static JAX shapes).
+def compute_human_sphere_counts(human_half_lengths, human_radii, interpolation_level=0):
+    """Per-capsule sphere counts for human capsules.
 
-    Based on the longest possible human capsule (extended thigh/shin).
+    Args:
+        human_half_lengths: list of float, half-length per human capsule.
+        human_radii: list of float, radius per human capsule.
+        interpolation_level: extra spheres between each adjacent base pair.
+
+    Returns:
+        List of int, one per human capsule.
     """
-    n_base = max(1, round(max_capsule_length / (2.0 * min_radius)))
-    return n_base + max(0, n_base - 1) * interpolation_level
+    counts = []
+    for hl, r in zip(human_half_lengths, human_radii):
+        L = 2.0 * hl
+        n_base = max(1, round(L / (2.0 * r)))
+        n_total = n_base + max(0, n_base - 1) * interpolation_level
+        counts.append(n_total)
+    return counts
 
 
 def sphere_centers(a, b, n):
