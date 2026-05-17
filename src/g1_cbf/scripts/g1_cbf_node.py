@@ -27,9 +27,7 @@ from g1_cbf.jax_kinematics import (
     LEG_JOINTS,
     N_HUMAN_CAPSULES,
     N_LEG_JOINTS,
-    capsule_endpoints_np,
 )
-from g1_cbf.collider_viz import ColliderVisualizer
 from g1_cbf_msg.msg import CapsuleArray
 
 
@@ -67,6 +65,11 @@ class G1CBFNode(Node):
             f'margin_phi={margin_phi}, max_vel={max_velocity}, '
             f'geometry={geom}'
         )
+        if self.get_parameter('publish_viz').value:
+            self.get_logger().warn(
+                'publish_viz on g1_cbf_node is ignored. Launch '
+                'g1_cbf_viz_node for isolated, rate-limited visualization.'
+            )
 
         # Build CBF (triggers JAX JIT warmup)
         self.get_logger().info('Initializing cbfpy CBF (JAX JIT warmup)...')
@@ -129,14 +132,6 @@ class G1CBFNode(Node):
         self._passthrough_positions = []
         self._passthrough_ctrl_indices = {}
 
-        # Visualization
-        self.viz = ColliderVisualizer(
-            self,
-            geometry_type=geom,
-            sphere_interpolation_level=self.get_parameter('sphere_interpolation_level').value,
-            sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
-        )
-
         # QoS: best-effort, volatile, depth 1
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -166,8 +161,6 @@ class G1CBFNode(Node):
 
         # Timers
         self.create_timer(dt, self._tick)
-        if self.get_parameter('publish_viz').value:
-            self.create_timer(0.1, self._viz_tick)  # 10 Hz, async from CBF
 
         self.get_logger().info(
             f'g1_cbf_node ready — publishing at {1.0/dt:.0f} Hz'
@@ -300,17 +293,6 @@ class G1CBFNode(Node):
             safe_msg.velocity = dq_safe.tolist()
 
         self.cmd_pub.publish(safe_msg)
-
-    def _viz_tick(self):
-        """Publish visualization at 10 Hz, decoupled from CBF hot path."""
-        if self.q_ctrl is None:
-            return
-        stamp = self.get_clock().now().to_msg()
-        self.viz.publish(stamp, self.q_ctrl, self.q_legs)
-        self.viz.publish_distances(
-            stamp, self.q_ctrl, self._human_capsules or None,
-            self.q_legs,
-        )
 
     # ------------------------------------------------------------------
     # Helpers

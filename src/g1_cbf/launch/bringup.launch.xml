@@ -3,6 +3,8 @@
   <arg name="rviz" default="false"/>
   <arg name="ghost" default="true"/>
   <arg name="bridge" default="true"/>
+  <arg name="viz" default="false"/>
+  <arg name="viz_rate" default="5.0"/>
 
   <!-- ==================== g1_bridge ==================== -->
   <!-- /lowstate → /joint_states + /imu (feedback) -->
@@ -28,6 +30,15 @@
     <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
     <remap from="/joint_commands" to="/upper_body_targets"/>
   </node>
+
+  <!-- Isolated, rate-limited marker publisher for RViz -->
+  <group if="$(var viz)">
+    <node pkg="g1_cbf" exec="g1_cbf_viz_node" name="g1_cbf_viz_node" output="screen">
+      <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+      <param name="publish_viz" value="true"/>
+      <param name="viz_rate" value="$(var viz_rate)"/>
+    </node>
+  </group>
 
   <!-- Ghost robot visualization (shows unfiltered upper body commands) -->
   <group if="$(var ghost)">

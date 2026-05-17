@@ -15,6 +15,11 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
+  scripts/g1_cbf_viz_node.py
+  RENAME g1_cbf_viz_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
   scripts/ghost_publisher_node.py
   RENAME ghost_publisher_node
   DESTINATION lib/${PROJECT_NAME}

@@ -119,6 +119,7 @@ class ColliderVisualizer:
 
     def _build_capsules(self, stamp, a_all, b_all, radii, half_lengths):
         msg = MarkerArray()
+        self._delete_all_once(stamp, msg, '_colliders_initialized', 'colliders')
         mid = 0
         for i in range(N_BODIES):
             color = _COLORS.get(BODY_NAMES[i], (0.5, 0.5, 0.5, 0.3))
@@ -146,6 +147,7 @@ class ColliderVisualizer:
 
     def _build_boxes(self, stamp, a_all, b_all, radii, half_lengths):
         msg = MarkerArray()
+        self._delete_all_once(stamp, msg, '_colliders_initialized', 'colliders')
         mid = 0
         for i in range(N_BODIES):
             color = _COLORS.get(BODY_NAMES[i], (0.5, 0.5, 0.5, 0.3))
@@ -164,6 +166,7 @@ class ColliderVisualizer:
 
     def _build_spheres(self, stamp, a_all, b_all, radii):
         msg = MarkerArray()
+        self._delete_all_once(stamp, msg, '_colliders_initialized', 'colliders')
         mid = 0
         identity_quat = [0.0, 0.0, 0.0, 1.0]
         half_lengths = np.asarray(HALF_LENGTHS)
@@ -203,19 +206,34 @@ class ColliderVisualizer:
             msg.markers.append(m)
         self._prev_n_markers = mid
 
+    def _delete_all_once(self, stamp, msg, attr_name, namespace):
+        if getattr(self, attr_name, False):
+            return
+        m = Marker()
+        m.header.frame_id = 'pelvis'
+        m.header.stamp = stamp
+        m.ns = namespace
+        m.action = Marker.DELETEALL
+        msg.markers.append(m)
+        setattr(self, attr_name, True)
+
     def publish_distances(self, stamp, q_controlled, human_capsules=None,
                           q_legs=None):
         a_all, b_all, radii = capsule_endpoints_np(q_controlled, q_legs)
 
         msg = MarkerArray()
-        idx = 0
-
+        self._delete_all_once(stamp, msg, '_distances_initialized', 'distances')
         if self.geometry_type == 'spheres':
-            idx = self._dist_spheres(stamp, msg, idx, a_all, b_all,
-                                     human_capsules)
+            groups = self._dist_spheres(a_all, b_all, human_capsules)
         else:
-            idx = self._dist_capsules(stamp, msg, idx, a_all, b_all,
-                                      human_capsules)
+            groups = self._dist_capsules(a_all, b_all, human_capsules)
+
+        idx = 0
+        for pairs, color in groups:
+            if not pairs:
+                continue
+            msg.markers.append(self._make_line_list(stamp, idx, pairs, color))
+            idx += 1
 
         prev = getattr(self, '_prev_n_distances', 0)
         for k in range(idx, prev):
@@ -230,15 +248,15 @@ class ColliderVisualizer:
 
         self.dist_pub.publish(msg)
 
-    def _dist_capsules(self, stamp, msg, idx, a_all, b_all, human_capsules):
+    def _dist_capsules(self, a_all, b_all, human_capsules):
+        self_pairs = []
+        human_pairs = []
+
         for i, j in COLLISION_PAIR_INDICES:
             p1, p2 = _closest_points_segments(
                 a_all[i], b_all[i], a_all[j], b_all[j],
             )
-            msg.markers.append(self._make_line(
-                stamp, idx, p1, p2, (1.0, 1.0, 0.0, 0.5),
-            ))
-            idx += 1
+            self_pairs.append((p1, p2))
 
         if human_capsules:
             for hcap in human_capsules:
@@ -246,44 +264,49 @@ class ColliderVisualizer:
                     p1, p2 = _closest_points_segments(
                         a_all[i], b_all[i], hcap['a'], hcap['b'],
                     )
-                    msg.markers.append(self._make_line(
-                        stamp, idx, p1, p2, (1.0, 0.5, 0.0, 0.5),
-                    ))
-                    idx += 1
-        return idx
+                    human_pairs.append((p1, p2))
 
-    def _dist_spheres(self, stamp, msg, idx, a_all, b_all, human_capsules):
+        return (
+            (self_pairs, (1.0, 1.0, 0.0, 0.5)),
+            (human_pairs, (1.0, 0.5, 0.0, 0.5)),
+        )
+
+    def _dist_spheres(self, a_all, b_all, human_capsules):
+        self_pairs = []
+        human_pairs = []
+        robot_centers = [
+            _np_sphere_centers(a_all[i], b_all[i], self.sphere_counts[i])
+            for i in range(N_BODIES)
+        ]
+
         # Self-collision: line for every sphere-sphere pair
         for i, j in COLLISION_PAIR_INDICES:
-            ci = _np_sphere_centers(a_all[i], b_all[i], self.sphere_counts[i])
-            cj = _np_sphere_centers(a_all[j], b_all[j], self.sphere_counts[j])
+            ci = robot_centers[i]
+            cj = robot_centers[j]
             for si in range(self.sphere_counts[i]):
                 for sj in range(self.sphere_counts[j]):
-                    msg.markers.append(self._make_line(
-                        stamp, idx, ci[si], cj[sj], (1.0, 1.0, 0.0, 0.5),
-                    ))
-                    idx += 1
+                    self_pairs.append((ci[si], cj[sj]))
 
         # Human-robot: line for every robot-sphere to human-sphere pair
         if human_capsules:
             for hcap in human_capsules:
                 h_len = np.linalg.norm(hcap['a'] - hcap['b']) + 2.0 * hcap['radius']
                 h_n = max(1, round(h_len / (2.0 * hcap['radius'])))
+                h_n += max(0, h_n - 1) * self.sphere_interp
                 h_centers = _np_sphere_centers(hcap['a'], hcap['b'], h_n)
                 for i in range(N_BODIES):
-                    ci = _np_sphere_centers(a_all[i], b_all[i],
-                                            self.sphere_counts[i])
+                    ci = robot_centers[i]
                     for si in range(self.sphere_counts[i]):
                         for sj in range(len(h_centers)):
-                            msg.markers.append(self._make_line(
-                                stamp, idx, ci[si], h_centers[sj],
-                                (1.0, 0.5, 0.0, 0.5),
-                            ))
-                            idx += 1
-        return idx
+                            human_pairs.append((ci[si], h_centers[sj]))
+
+        return (
+            (self_pairs, (1.0, 1.0, 0.0, 0.5)),
+            (human_pairs, (1.0, 0.5, 0.0, 0.5)),
+        )
 
     @staticmethod
-    def _make_line(stamp, marker_id, p1, p2, color):
+    def _make_line_list(stamp, marker_id, point_pairs, color):
         m = Marker()
         m.header.frame_id = 'pelvis'
         m.header.stamp = stamp
@@ -293,12 +316,13 @@ class ColliderVisualizer:
         m.action = Marker.ADD
         m.scale = Vector3(x=0.005, y=0.0, z=0.0)
         m.color = ColorRGBA(r=color[0], g=color[1], b=color[2], a=color[3])
-        m.points.append(Point(
-            x=float(p1[0]), y=float(p1[1]), z=float(p1[2]),
-        ))
-        m.points.append(Point(
-            x=float(p2[0]), y=float(p2[1]), z=float(p2[2]),
-        ))
+        for p1, p2 in point_pairs:
+            m.points.append(Point(
+                x=float(p1[0]), y=float(p1[1]), z=float(p1[2]),
+            ))
+            m.points.append(Point(
+                x=float(p2[0]), y=float(p2[1]), z=float(p2[2]),
+            ))
         return m
 
     @staticmethod

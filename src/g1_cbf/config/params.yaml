@@ -5,7 +5,7 @@ g1_cbf_node:
     gamma: 10.0        # CBF gain
     K: 50.0           # proportional speed gain
     max_velocity: 100.0  # rad/s velocity limit
-    max_lead: 1.0        # max distance (rad) target can lead actual position
+    max_lead: 0.5        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
     evaluate_at_actual: true  # true: barriers at actual state, false: barriers at target
     collision_geometry: "capsules"  # 'capsules', 'spheres', or 'boxes'
@@ -14,7 +14,14 @@ g1_cbf_node:
     beta: 1.05                      # box separation margin (boxes mode)
     max_iter: 50     # QP solver max iterations
     solver_tol: 0.001   # QP solver convergence tolerance (KKT residual)
-    publish_viz: false # publish collision markers (/robot_colliders, /collision_distances)
     # Human capsule dimensions (order: torso, L/R arm, L/R shoulder, L/R thigh_ext, L/R shin)
     human_half_lengths: [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.225, 0.225]
     human_radii: [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.065, 0.065]
+
+g1_cbf_viz_node:
+  ros__parameters:
+    publish_viz: false
+    viz_rate: 5.0
+    collision_geometry: "capsules"
+    sphere_interpolation_level: 1
+    sphere_radius_gain: 1.0
