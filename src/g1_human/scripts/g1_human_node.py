@@ -50,6 +50,7 @@ class G1HumanNode(Node):
         self.declare_parameter('collision_geometry', 'capsules')
         self.declare_parameter('sphere_interpolation_level', 0)
         self.declare_parameter('sphere_radius_gain', 1.0)
+        self.declare_parameter('human_radius_scale', 1.0)
 
         # Joint state: 8 controlled joints, default neutral (zeros)
         self.q_controlled = np.zeros(8)
@@ -105,6 +106,7 @@ class G1HumanNode(Node):
         # FK via JAX (returns numpy)
         a_all, b_all, radii = capsule_endpoints_np(q)
         half_lengths = np.asarray(HALF_LENGTHS)
+        radius_scale = float(self.get_parameter('human_radius_scale').value)
 
         R_base, t_base = self._get_pelvis_transform()
 
@@ -120,7 +122,7 @@ class G1HumanNode(Node):
             BODY_NAMES.index('right_thigh'): 'right',
         }
         THIGH_SCALE = 1.5
-        shin_radius = 0.065
+        shin_radius = 0.065 * radius_scale
         shin_half_length = 0.15 * 1.5
         shin_seg_half = shin_half_length - shin_radius
         shin_knee_bend = np.radians(10.0)  # slight forward bend at knee
@@ -129,7 +131,7 @@ class G1HumanNode(Node):
         thigh_bottoms = {}  # side -> bottom endpoint in local frame (for shin attachment)
 
         for i in range(N_BODIES):
-            r = float(radii[i])
+            r = float(radii[i]) * radius_scale
             hl = float(half_lengths[i])
             a_local = a_all[i]
             b_local = b_all[i]
@@ -137,7 +139,6 @@ class G1HumanNode(Node):
             # Extend thigh capsules for the human
             if i in THIGH_INDICES:
                 hl_ext = hl * THIGH_SCALE
-                seg_half_ext = hl_ext - r
                 center = (a_local + b_local) / 2.0
                 axis = a_local - b_local
                 length = np.linalg.norm(axis)
@@ -145,10 +146,15 @@ class G1HumanNode(Node):
                     direction = axis / length
                 else:
                     direction = np.array([0.0, 0.0, 1.0])
+                seg_half_ext = max(0.0, hl_ext - r)
                 a_local = center + seg_half_ext * direction
                 b_local = center - seg_half_ext * direction
                 hl = hl_ext
                 thigh_bottoms[THIGH_INDICES[i]] = b_local.copy()
+            else:
+                a_local, b_local = self._scale_capsule_width(
+                    a_local, b_local, hl, r,
+                )
 
             a_world = R_base @ a_local + t_base
             b_world = R_base @ b_local + t_base
@@ -183,7 +189,7 @@ class G1HumanNode(Node):
 
             # Shin top = thigh bottom, shin extends in bent direction
             shin_top = b_thigh
-            shin_bottom = shin_top - 2.0 * shin_seg_half * shin_dir
+            shin_bottom = shin_top - 2.0 * max(0.0, shin_seg_half) * shin_dir
             a_world = R_base @ shin_top + t_base
             b_world = R_base @ shin_bottom + t_base
 
@@ -209,12 +215,28 @@ class G1HumanNode(Node):
 
     _COLOR = (0.9, 0.5, 0.1, 0.3)  # orange for human
 
+    @staticmethod
+    def _scale_capsule_width(a_local, b_local, half_length, radius):
+        """Scale capsule radius while preserving full axial length."""
+        center = (a_local + b_local) / 2.0
+        axis = a_local - b_local
+        length = np.linalg.norm(axis)
+        if length > 1e-6:
+            direction = axis / length
+        else:
+            direction = np.array([0.0, 0.0, 1.0])
+        seg_half = max(0.0, half_length - radius)
+        return (
+            center + seg_half * direction,
+            center - seg_half * direction,
+        )
+
     def _viz_capsules(self, stamp, capsule_data):
         msg = MarkerArray()
         mid = 0
         for name, radius, half_length, a_world, b_world in capsule_data:
             diam = 2.0 * radius
-            seg_half = half_length - radius
+            seg_half = max(0.0, half_length - radius)
             shaft_len = 2.0 * seg_half
             center = (a_world + b_world) / 2.0
             quat = self._axis_to_quat(a_world, b_world)

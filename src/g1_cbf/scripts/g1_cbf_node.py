@@ -53,6 +53,7 @@ class G1CBFNode(Node):
         self.declare_parameter('solver_tol', 1e-3)
         self.declare_parameter('human_half_lengths', [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.225, 0.225])
         self.declare_parameter('human_radii', [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.065, 0.065])
+        self.declare_parameter('human_radius_scale', 1.0)
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
@@ -73,6 +74,11 @@ class G1CBFNode(Node):
 
         # Build CBF (triggers JAX JIT warmup)
         self.get_logger().info('Initializing cbfpy CBF (JAX JIT warmup)...')
+        human_radius_scale = float(self.get_parameter('human_radius_scale').value)
+        human_radii = [
+            float(r) * human_radius_scale
+            for r in self.get_parameter('human_radii').value
+        ]
         config = G1CollisionCBFConfig(
             gamma=gamma,
             margin_phi=margin_phi,
@@ -83,7 +89,7 @@ class G1CBFNode(Node):
             beta=self.get_parameter('beta').value,
             solver_tol=self.get_parameter('solver_tol').value,
             human_half_lengths=list(self.get_parameter('human_half_lengths').value),
-            human_radii=list(self.get_parameter('human_radii').value),
+            human_radii=human_radii,
         )
         self.cbf = CBF.from_config(config)
 
