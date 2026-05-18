@@ -51,6 +51,7 @@ class G1CollisionCBFConfig(CBFConfig):
         human_half_lengths: list = None,
         human_radii: list = None,
         external_pair_slots: int = None,
+        internal_pair_slots: int = None,
     ):
         self.gamma_val = gamma
         self.margin_phi = margin_phi
@@ -60,6 +61,7 @@ class G1CollisionCBFConfig(CBFConfig):
         self.external_pair_slots = int(
             external_pair_slots or (N_BODIES * N_HUMAN_CAPSULES)
         )
+        self.internal_pair_slots = 1
 
         # Compute barrier count based on geometry mode
         if self.geom == 'spheres':
@@ -75,10 +77,14 @@ class G1CollisionCBFConfig(CBFConfig):
             self.human_sphere_counts_jnp = jnp.array(self.human_sphere_counts)
             self.max_robot_spheres = max(self.sphere_counts)
             self.max_human_spheres = max(self.human_sphere_counts)
-            n_self = sum(
+            full_internal_pairs = sum(
                 self.sphere_counts[i] * self.sphere_counts[j]
                 for i, j in COLLISION_PAIR_INDICES
             )
+            self.internal_pair_slots = int(
+                internal_pair_slots or full_internal_pairs
+            )
+            n_self = self.internal_pair_slots
             n_human = (
                 self.external_pair_slots
                 * self.max_robot_spheres
@@ -94,6 +100,8 @@ class G1CollisionCBFConfig(CBFConfig):
         dummy_human = jnp.zeros((N_HUMAN_CAPSULES, 7))
         dummy_pair_indices = jnp.zeros((self.external_pair_slots, 2), dtype=jnp.int32)
         dummy_pair_mask = jnp.zeros(self.external_pair_slots, dtype=bool)
+        dummy_internal_indices = jnp.zeros((self.internal_pair_slots, 4), dtype=jnp.int32)
+        dummy_internal_mask = jnp.zeros(self.internal_pair_slots, dtype=bool)
 
         super().__init__(
             n=8,
@@ -103,7 +111,14 @@ class G1CollisionCBFConfig(CBFConfig):
             relax_qp=True,
             cbf_relaxation_penalty=1e4,
             solver_tol=solver_tol,
-            init_args=(dummy_legs, dummy_human, dummy_pair_indices, dummy_pair_mask),
+            init_args=(
+                dummy_legs,
+                dummy_human,
+                dummy_pair_indices,
+                dummy_pair_mask,
+                dummy_internal_indices,
+                dummy_internal_mask,
+            ),
         )
 
     def f(self, z, *args, **kwargs):
@@ -113,11 +128,12 @@ class G1CollisionCBFConfig(CBFConfig):
         return jnp.eye(8)
 
     def h_1(self, z, q_legs, human_capsules, active_pair_indices,
-            active_pair_mask, **kwargs):
+            active_pair_mask, active_internal_indices, active_internal_mask,
+            **kwargs):
         if self.geom == 'spheres':
             return self._h1_spheres(
                 z, q_legs, human_capsules, active_pair_indices,
-                active_pair_mask,
+                active_pair_mask, active_internal_indices, active_internal_mask,
             )
         elif self.geom == 'boxes':
             return self._h1_boxes(
@@ -171,22 +187,11 @@ class G1CollisionCBFConfig(CBFConfig):
     # ------------------------------------------------------------------
 
     def _h1_spheres(self, z, q_legs, human_capsules, active_pair_indices,
-                    active_pair_mask):
+                    active_pair_mask, active_internal_indices,
+                    active_internal_mask):
         a_robot, b_robot = capsule_endpoints_all(z, q_legs)
         rg = self.radius_gain
         barriers = []
-
-        # Self-collision: sphere-sphere pairs
-        for i, j in COLLISION_PAIR_INDICES:
-            ci = sphere_centers(a_robot[i], b_robot[i], self.sphere_counts[i])
-            cj = sphere_centers(a_robot[j], b_robot[j], self.sphere_counts[j])
-            ri = RADII[i] * rg
-            rj = RADII[j] * rg
-            r_sum_sq = (ri + rj) ** 2
-            for si in range(self.sphere_counts[i]):
-                for sj in range(self.sphere_counts[j]):
-                    d_sq = jnp.sum((ci[si] - cj[sj]) ** 2)
-                    barriers.append(d_sq - r_sum_sq - self.margin_phi)
 
         # Human-robot: decompose both into spheres, check all pairs
         h_a = human_capsules[:, :3]
@@ -198,6 +203,18 @@ class G1CollisionCBFConfig(CBFConfig):
         human_centers = self._padded_sphere_centers(
             h_a, h_b, self.human_sphere_counts, self.max_human_spheres,
         )
+
+        # Self-collision: selected internal sphere-sphere pairs
+        for slot in range(self.internal_pair_slots):
+            i = active_internal_indices[slot, 0]
+            si = active_internal_indices[slot, 1]
+            j = active_internal_indices[slot, 2]
+            sj = active_internal_indices[slot, 3]
+            d_sq = jnp.sum((robot_centers[i, si] - robot_centers[j, sj]) ** 2)
+            r_sum_sq = ((RADII[i] + RADII[j]) * rg) ** 2
+            barriers.append(jnp.where(
+                active_internal_mask[slot], d_sq - r_sum_sq - self.margin_phi, 1.0,
+            ))
 
         for slot in range(self.external_pair_slots):
             i = active_pair_indices[slot, 0]

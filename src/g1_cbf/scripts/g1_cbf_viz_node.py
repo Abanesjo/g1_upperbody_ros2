@@ -42,6 +42,7 @@ class G1CBFVizNode(Node):
         self.q_legs = np.zeros(len(LEG_JOINTS))
         self._human_capsules = []
         self._active_external_pairs = None
+        self._active_internal_pairs = None
 
         self.viz = ColliderVisualizer(
             self,
@@ -59,7 +60,7 @@ class G1CBFVizNode(Node):
             CapsuleArray, '/human/colliders', self._human_cb, SENSOR_QOS,
         )
         self.create_subscription(
-            ActiveCollisionPairs, '/cbf/active_external_pairs',
+            ActiveCollisionPairs, '/cbf/active_collision_pairs',
             self._active_pairs_cb, SENSOR_QOS,
         )
 
@@ -100,17 +101,33 @@ class G1CBFVizNode(Node):
         self._human_capsules = capsules
 
     def _active_pairs_cb(self, msg: ActiveCollisionPairs):
-        pairs = []
+        external_pairs = []
         count = min(
             len(msg.robot_body_index),
             len(msg.human_capsule_index),
         )
         for i in range(count):
-            pairs.append((
+            external_pairs.append((
                 int(msg.robot_body_index[i]),
                 int(msg.human_capsule_index[i]),
             ))
-        self._active_external_pairs = pairs
+        self._active_external_pairs = external_pairs
+
+        internal_pairs = []
+        internal_count = min(
+            len(msg.internal_body_a_index),
+            len(msg.internal_sphere_a_index),
+            len(msg.internal_body_b_index),
+            len(msg.internal_sphere_b_index),
+        )
+        for i in range(internal_count):
+            internal_pairs.append((
+                int(msg.internal_body_a_index[i]),
+                int(msg.internal_sphere_a_index[i]),
+                int(msg.internal_body_b_index[i]),
+                int(msg.internal_sphere_b_index[i]),
+            ))
+        self._active_internal_pairs = internal_pairs
 
     def _tick(self):
         if not self.get_parameter('publish_viz').value:
@@ -122,7 +139,7 @@ class G1CBFVizNode(Node):
         self.viz.publish(stamp, self.q_ctrl, self.q_legs)
         self.viz.publish_distances(
             stamp, self.q_ctrl, self._human_capsules or None, self.q_legs,
-            self._active_external_pairs,
+            self._active_external_pairs, self._active_internal_pairs,
         )
 
 

@@ -1,12 +1,14 @@
-"""JAX broadphase selection for external robot-human collision pairs."""
+"""JAX broadphase selection for active collision pairs."""
 
 import jax.numpy as jnp
 
 from g1_cbf.jax_kinematics import (
+    COLLISION_PAIR_INDICES,
     N_BODIES,
     N_HUMAN_CAPSULES,
     RADII,
     capsule_endpoints_all,
+    sphere_centers,
 )
 
 
@@ -63,6 +65,79 @@ def _segment_distances(a1, b1, a2, b2):
     p1 = a1 + s[:, None] * d1
     p2 = a2 + t[:, None] * d2
     return jnp.linalg.norm(p1 - p2, axis=1)
+
+
+def make_internal_sphere_pair_indices(sphere_counts):
+    """Build all internal robot sphere-pair candidates for sphere mode."""
+    pairs = []
+    for body_a, body_b in COLLISION_PAIR_INDICES:
+        for sphere_a in range(sphere_counts[body_a]):
+            for sphere_b in range(sphere_counts[body_b]):
+                pairs.append((body_a, sphere_a, body_b, sphere_b))
+    return jnp.array(pairs, dtype=jnp.int32)
+
+
+def _padded_sphere_centers(a_all, b_all, sphere_counts, max_count):
+    centers = []
+    for i, count in enumerate(sphere_counts):
+        c = sphere_centers(a_all[i], b_all[i], count)
+        if count < max_count:
+            pad = jnp.zeros((max_count - count, 3), dtype=c.dtype)
+            c = jnp.concatenate([c, pad], axis=0)
+        centers.append(c)
+    return jnp.stack(centers)
+
+
+def select_active_internal_sphere_pairs_jax(
+    z,
+    q_legs,
+    activation_distance,
+    always_keep_nearest,
+    filtering_enabled,
+    all_pair_indices,
+    sphere_counts,
+    max_robot_spheres,
+    sphere_radius_gain,
+    internal_pair_slots,
+):
+    """Select active internal sphere pairs while keeping fixed output shapes."""
+    a_robot, b_robot = capsule_endpoints_all(z, q_legs)
+    robot_centers = _padded_sphere_centers(
+        a_robot, b_robot, sphere_counts, max_robot_spheres,
+    )
+
+    body_a = all_pair_indices[:, 0]
+    sphere_a = all_pair_indices[:, 1]
+    body_b = all_pair_indices[:, 2]
+    sphere_b = all_pair_indices[:, 3]
+
+    ca = robot_centers[body_a, sphere_a]
+    cb = robot_centers[body_b, sphere_b]
+    clearances = (
+        jnp.linalg.norm(ca - cb, axis=1)
+        - RADII[body_a] * sphere_radius_gain
+        - RADII[body_b] * sphere_radius_gain
+    )
+
+    nearest_order = jnp.argsort(clearances)
+    ranks = jnp.zeros_like(nearest_order).at[nearest_order].set(
+        jnp.arange(nearest_order.shape[0], dtype=nearest_order.dtype)
+    )
+
+    keep_by_threshold = clearances <= activation_distance
+    keep_by_rank = ranks < always_keep_nearest
+    filtered_active = keep_by_threshold | keep_by_rank
+    active = jnp.where(filtering_enabled, filtered_active, jnp.ones_like(filtered_active))
+
+    selected_order = jnp.argsort(jnp.where(active, clearances, jnp.inf))
+    selected_flat = selected_order[:internal_pair_slots]
+    selected_pairs = all_pair_indices[selected_flat]
+    selected_mask = active[selected_flat]
+    selected_clearances = jnp.where(
+        selected_mask, clearances[selected_flat], jnp.inf,
+    )
+
+    return selected_pairs, selected_mask, selected_clearances
 
 
 def select_active_external_pairs_jax(

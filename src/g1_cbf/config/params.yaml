@@ -9,7 +9,7 @@ g1_cbf_node:
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
     evaluate_at_actual: true  # true: barriers at actual state, false: barriers at target
     collision_geometry: "spheres"  # 'capsules', 'spheres', or 'boxes'
-    sphere_interpolation_level: 1   # extra spheres between each base pair (spheres mode)
+    sphere_interpolation_level: 0   # extra spheres between each base pair (spheres mode)
     sphere_radius_gain: 1.0         # radius scaling (spheres mode)
     beta: 1.05                      # box separation margin (boxes mode)
     max_iter: 50     # QP solver max iterations
@@ -22,6 +22,10 @@ g1_cbf_node:
     external_activation_distance: 0.35
     external_max_active_pairs: 16
     external_always_keep_nearest: 4
+    internal_filter_enabled: true
+    internal_activation_distance: 0.20
+    internal_max_active_pairs: 48
+    internal_always_keep_nearest: 12
 
 g1_cbf_viz_node:
   ros__parameters:

@@ -218,7 +218,8 @@ class ColliderVisualizer:
         setattr(self, attr_name, True)
 
     def publish_distances(self, stamp, q_controlled, human_capsules=None,
-                          q_legs=None, active_external_pairs=None):
+                          q_legs=None, active_external_pairs=None,
+                          active_internal_pairs=None):
         a_all, b_all, radii = capsule_endpoints_np(q_controlled, q_legs)
 
         msg = MarkerArray()
@@ -226,6 +227,7 @@ class ColliderVisualizer:
         if self.geometry_type == 'spheres':
             groups = self._dist_spheres(
                 a_all, b_all, human_capsules, active_external_pairs,
+                active_internal_pairs,
             )
         else:
             groups = self._dist_capsules(
@@ -287,7 +289,7 @@ class ColliderVisualizer:
         )
 
     def _dist_spheres(self, a_all, b_all, human_capsules,
-                      active_external_pairs=None):
+                      active_external_pairs=None, active_internal_pairs=None):
         self_pairs = []
         human_pairs = []
         robot_centers = [
@@ -295,13 +297,22 @@ class ColliderVisualizer:
             for i in range(N_BODIES)
         ]
 
-        # Self-collision: line for every sphere-sphere pair
-        for i, j in COLLISION_PAIR_INDICES:
-            ci = robot_centers[i]
-            cj = robot_centers[j]
-            for si in range(self.sphere_counts[i]):
-                for sj in range(self.sphere_counts[j]):
-                    self_pairs.append((ci[si], cj[sj]))
+        # Self-collision: filtered active sphere-sphere pairs when available.
+        if active_internal_pairs is None:
+            active_internal_pairs = [
+                (i, si, j, sj)
+                for i, j in COLLISION_PAIR_INDICES
+                for si in range(self.sphere_counts[i])
+                for sj in range(self.sphere_counts[j])
+            ]
+        for i, si, j, sj in active_internal_pairs:
+            if i < 0 or i >= N_BODIES or j < 0 or j >= N_BODIES:
+                continue
+            if si < 0 or si >= len(robot_centers[i]):
+                continue
+            if sj < 0 or sj >= len(robot_centers[j]):
+                continue
+            self_pairs.append((robot_centers[i][si], robot_centers[j][sj]))
 
         # Human-robot: line for every robot-sphere to human-sphere pair
         if human_capsules:

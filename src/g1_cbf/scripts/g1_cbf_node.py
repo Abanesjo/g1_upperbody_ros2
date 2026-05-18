@@ -23,7 +23,11 @@ from sensor_msgs.msg import JointState
 from cbfpy import CBF
 from functools import partial
 
-from g1_cbf.active_pairs import select_active_external_pairs_jax
+from g1_cbf.active_pairs import (
+    make_internal_sphere_pair_indices,
+    select_active_external_pairs_jax,
+    select_active_internal_sphere_pairs_jax,
+)
 from g1_cbf.cbf_config import G1CollisionCBFConfig
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
@@ -31,6 +35,7 @@ from g1_cbf.jax_kinematics import (
     N_BODIES,
     N_HUMAN_CAPSULES,
     N_LEG_JOINTS,
+    compute_sphere_counts,
 )
 from g1_cbf_msg.msg import ActiveCollisionPairs, CapsuleArray
 
@@ -62,6 +67,10 @@ class G1CBFNode(Node):
         self.declare_parameter('external_activation_distance', 0.35)
         self.declare_parameter('external_max_active_pairs', 16)
         self.declare_parameter('external_always_keep_nearest', 4)
+        self.declare_parameter('internal_filter_enabled', True)
+        self.declare_parameter('internal_activation_distance', 0.20)
+        self.declare_parameter('internal_max_active_pairs', 48)
+        self.declare_parameter('internal_always_keep_nearest', 12)
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
@@ -93,6 +102,12 @@ class G1CBFNode(Node):
         external_max_active_pairs = int(
             self.get_parameter('external_max_active_pairs').value
         )
+        sphere_interpolation_level = int(
+            self.get_parameter('sphere_interpolation_level').value
+        )
+        sphere_radius_gain = float(
+            self.get_parameter('sphere_radius_gain').value
+        )
         full_external_pairs = N_BODIES * N_HUMAN_CAPSULES
         if external_filter_enabled:
             self._external_pair_slots = max(
@@ -100,24 +115,56 @@ class G1CBFNode(Node):
             )
         else:
             self._external_pair_slots = full_external_pairs
+
+        self._internal_pair_slots = 1
+        self._all_internal_sphere_pair_indices = jnp.zeros((1, 4), dtype=jnp.int32)
+        self._sphere_counts = compute_sphere_counts(sphere_interpolation_level)
+        if geom == 'spheres':
+            self._all_internal_sphere_pair_indices = make_internal_sphere_pair_indices(
+                self._sphere_counts,
+            )
+            full_internal_pairs = int(self._all_internal_sphere_pair_indices.shape[0])
+            internal_filter_enabled = bool(
+                self.get_parameter('internal_filter_enabled').value
+            )
+            internal_max_active_pairs = int(
+                self.get_parameter('internal_max_active_pairs').value
+            )
+            if internal_filter_enabled:
+                self._internal_pair_slots = max(
+                    1, min(internal_max_active_pairs, full_internal_pairs)
+                )
+            else:
+                self._internal_pair_slots = full_internal_pairs
         config = G1CollisionCBFConfig(
             gamma=gamma,
             margin_phi=margin_phi,
             max_velocity=max_velocity,
             collision_geometry=geom,
-            sphere_interpolation_level=self.get_parameter('sphere_interpolation_level').value,
-            sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
+            sphere_interpolation_level=sphere_interpolation_level,
+            sphere_radius_gain=sphere_radius_gain,
             beta=self.get_parameter('beta').value,
             solver_tol=self.get_parameter('solver_tol').value,
             human_half_lengths=list(self.get_parameter('human_half_lengths').value),
             human_radii=human_radii,
             external_pair_slots=self._external_pair_slots,
+            internal_pair_slots=self._internal_pair_slots,
         )
         self.cbf = CBF.from_config(config)
-        self._select_active_pairs_jit = jax.jit(partial(
+        self._select_active_external_pairs_jit = jax.jit(partial(
             select_active_external_pairs_jax,
             external_pair_slots=self._external_pair_slots,
         ))
+        self._select_active_internal_pairs_jit = None
+        if geom == 'spheres':
+            self._select_active_internal_pairs_jit = jax.jit(partial(
+                select_active_internal_sphere_pairs_jax,
+                all_pair_indices=self._all_internal_sphere_pair_indices,
+                sphere_counts=tuple(self._sphere_counts),
+                max_robot_spheres=max(self._sphere_counts),
+                sphere_radius_gain=sphere_radius_gain,
+                internal_pair_slots=self._internal_pair_slots,
+            ))
 
         # Patch safety_filter to pass max_iter (cbfpy doesn't expose it)
         max_iter = self.get_parameter('max_iter').value
@@ -144,12 +191,18 @@ class G1CBFNode(Node):
         _hc = jnp.zeros((N_HUMAN_CAPSULES, 7))
         _pairs = jnp.zeros((self._external_pair_slots, 2), dtype=jnp.int32)
         _pair_mask = jnp.zeros(self._external_pair_slots, dtype=bool)
+        _internal_pairs = jnp.zeros((self._internal_pair_slots, 4), dtype=jnp.int32)
+        _internal_mask = jnp.zeros(self._internal_pair_slots, dtype=bool)
         t0 = _time.monotonic()
-        _ = self.cbf.safety_filter(_z, _u, _ql, _hc, _pairs, _pair_mask)
+        _ = self.cbf.safety_filter(
+            _z, _u, _ql, _hc, _pairs, _pair_mask,
+            _internal_pairs, _internal_mask,
+        )
         jit_time = _time.monotonic() - t0
         self.get_logger().info(
             f'CBF ready — {config.num_cbf} constraints '
             f'({geom} mode), external_pair_slots={self._external_pair_slots}, '
+            f'internal_pair_slots={self._internal_pair_slots}, '
             f'JIT compiled in {jit_time:.1f}s'
         )
 
@@ -193,7 +246,7 @@ class G1CBFNode(Node):
             JointState, '/joint_commands', sensor_qos,
         )
         self.active_pairs_pub = self.create_publisher(
-            ActiveCollisionPairs, '/cbf/active_external_pairs', sensor_qos,
+            ActiveCollisionPairs, '/cbf/active_collision_pairs', sensor_qos,
         )
 
         # Timers
@@ -301,10 +354,14 @@ class G1CBFNode(Node):
                 z, q_legs_jnp, human_caps, human_mask,
             )
         )
+        internal_indices_jnp, internal_mask_jnp, internal_clearances_jnp = (
+            self._select_active_internal_pairs(z, q_legs_jnp)
+        )
 
         # Single CBF call — FK + proximity + QP all on GPU
         dq_safe_jnp = self.cbf.safety_filter(
             z, u_des, q_legs_jnp, human_caps, pair_indices_jnp, pair_mask_jnp,
+            internal_indices_jnp, internal_mask_jnp,
         )
         dq_safe = np.asarray(dq_safe_jnp)
 
@@ -327,6 +384,9 @@ class G1CBFNode(Node):
             pair_indices_jnp,
             pair_mask_jnp,
             pair_clearances_jnp,
+            internal_indices_jnp,
+            internal_mask_jnp,
+            internal_clearances_jnp,
         )
 
         if self._passthrough_names:
@@ -366,7 +426,7 @@ class G1CBFNode(Node):
         )
 
     def _select_active_external_pairs(self, z, q_legs, human_caps, human_mask):
-        return self._select_active_pairs_jit(
+        return self._select_active_external_pairs_jit(
             z,
             q_legs,
             human_caps,
@@ -385,13 +445,43 @@ class G1CBFNode(Node):
             ),
         )
 
-    def _publish_active_pairs(self, stamp, pair_indices, pair_mask, clearances):
+    def _select_active_internal_pairs(self, z, q_legs):
+        if self._select_active_internal_pairs_jit is None:
+            return (
+                jnp.zeros((self._internal_pair_slots, 4), dtype=jnp.int32),
+                jnp.zeros(self._internal_pair_slots, dtype=bool),
+                jnp.full(self._internal_pair_slots, jnp.inf, dtype=jnp.float64),
+            )
+        return self._select_active_internal_pairs_jit(
+            z,
+            q_legs,
+            jnp.array(
+                self.get_parameter('internal_activation_distance').value,
+                dtype=jnp.float64,
+            ),
+            jnp.array(
+                self.get_parameter('internal_always_keep_nearest').value,
+                dtype=jnp.int32,
+            ),
+            jnp.array(
+                self.get_parameter('internal_filter_enabled').value,
+                dtype=bool,
+            ),
+        )
+
+    def _publish_active_pairs(self, stamp, pair_indices, pair_mask, clearances,
+                              internal_indices, internal_mask,
+                              internal_clearances):
         if self.active_pairs_pub.get_subscription_count() == 0:
             return
         pair_indices = np.asarray(pair_indices)
         pair_mask = np.asarray(pair_mask)
         clearances = np.asarray(clearances)
         active_count = int(np.count_nonzero(pair_mask))
+        internal_indices = np.asarray(internal_indices)
+        internal_mask = np.asarray(internal_mask)
+        internal_clearances = np.asarray(internal_clearances)
+        active_internal_count = int(np.count_nonzero(internal_mask))
 
         msg = ActiveCollisionPairs()
         msg.header.stamp = stamp
@@ -400,6 +490,12 @@ class G1CBFNode(Node):
             msg.robot_body_index.append(int(pair_indices[slot, 0]))
             msg.human_capsule_index.append(int(pair_indices[slot, 1]))
             msg.clearance.append(float(clearances[slot]))
+        for slot in range(active_internal_count):
+            msg.internal_body_a_index.append(int(internal_indices[slot, 0]))
+            msg.internal_sphere_a_index.append(int(internal_indices[slot, 1]))
+            msg.internal_body_b_index.append(int(internal_indices[slot, 2]))
+            msg.internal_sphere_b_index.append(int(internal_indices[slot, 3]))
+            msg.internal_clearance.append(float(internal_clearances[slot]))
         self.active_pairs_pub.publish(msg)
 
 
