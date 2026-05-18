@@ -1,18 +1,26 @@
 #!/bin/bash
+set -e
+
 source /opt/ros/humble/setup.bash
 
-# Install dpax (JAX-based differentiable proximity for CBF)
-pip3 install -e /workspace/dependencies/dpax 2>/dev/null
-
 cd /workspace/ros2_ws
+
+rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install --parallel-workers $(( $(nproc) / 2 ))
 source /workspace/ros2_ws/install/setup.bash
 
-echo "source /workspace/ros2_ws/install/setup.bash" >> ~/.bashrc
-echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> ~/.bashrc
-echo "export CYCLONEDDS_URI=file:///workspace/dependencies/cyclonedds.xml" >> ~/.bashrc
-echo "alias mujoco='export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu'" >> ~/.bashrc
 
+if ! grep -qxF "#Entrypoint Setup" ~/.bashrc; then
+    cat <<'EOF' >> ~/.bashrc
 
-cd /workspace/ros2_ws/src
+#Entrypoint Setup
+source /opt/ros/humble/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+export RMW_IMPLEMENTATION="rmw_cyclonedds_cpp"
+export CYCLONEDDS_URI=file:///workspace/dependencies/cyclonedds.xml
+alias mujoco='export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu'
+export XLA_PYTHON_CLIENT_MEM_FRACTION=".50"
+EOF
+fi
+
 exec bash

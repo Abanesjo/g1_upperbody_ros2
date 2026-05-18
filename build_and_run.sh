@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+
 IMAGE_NAME="g1_upperbody_ros2"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 

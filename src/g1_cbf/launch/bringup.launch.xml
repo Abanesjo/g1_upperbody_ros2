@@ -3,7 +3,7 @@
   <arg name="rviz" default="false"/>
   <arg name="ghost" default="true"/>
   <arg name="bridge" default="true"/>
-  <arg name="viz" default="false"/>
+  <arg name="viz" default="true"/>
   <arg name="viz_rate" default="5.0"/>
 
   <!-- ==================== g1_bridge ==================== -->

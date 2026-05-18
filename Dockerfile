@@ -1,6 +1,12 @@
-FROM osrf/ros:humble-desktop-full
+FROM ros:humble
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV PIP_ROOT_USER_ACTION=ignore
 
 RUN apt update && apt upgrade -y
+
+RUN apt install ros-humble-desktop -y
 
 # ROS2 and build deps
 RUN apt install -y \
@@ -16,6 +22,7 @@ RUN apt install -y \
     libboost-all-dev \
     libspdlog-dev \
     libfmt-dev \
+    sudo \
     tmux
 
 RUN pip3 install numpy==1.26.4 scipy==1.13.1 opencv-contrib-python==4.7.0.72
@@ -36,6 +43,7 @@ RUN cd /workspace/dependencies/unitree_sdk2 && mkdir build && cd build && \
 #unitree_sdk2_python
 # RUN CYCLONEDDS_HOME=/usr/local pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
 RUN CYCLONEDDS_HOME=/opt/ros/humble pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
+RUN pip3 install --no-deps /workspace/dependencies/dpax
 
 #Onnx Runtime C++
 COPY dependencies/onnxruntime/lib/ /usr/local/lib/
@@ -43,8 +51,6 @@ COPY dependencies/onnxruntime/include/ /usr/local/include/
 RUN ln -sf /usr/local/lib/libonnxruntime.so.1.22.0 /usr/local/lib/libonnxruntime.so && ldconfig
 
 RUN mkdir -p /workspace/ros2_ws/src
-
-WORKDIR /workspace/ros2_ws
 
 # ENV CMAKE_PREFIX_PATH=/opt/unitree_robotics:/opt/cyclonedds
 # ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib:/opt/onnxruntime/lib
