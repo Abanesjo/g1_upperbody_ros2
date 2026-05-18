@@ -218,15 +218,19 @@ class ColliderVisualizer:
         setattr(self, attr_name, True)
 
     def publish_distances(self, stamp, q_controlled, human_capsules=None,
-                          q_legs=None):
+                          q_legs=None, active_external_pairs=None):
         a_all, b_all, radii = capsule_endpoints_np(q_controlled, q_legs)
 
         msg = MarkerArray()
         self._delete_all_once(stamp, msg, '_distances_initialized', 'distances')
         if self.geometry_type == 'spheres':
-            groups = self._dist_spheres(a_all, b_all, human_capsules)
+            groups = self._dist_spheres(
+                a_all, b_all, human_capsules, active_external_pairs,
+            )
         else:
-            groups = self._dist_capsules(a_all, b_all, human_capsules)
+            groups = self._dist_capsules(
+                a_all, b_all, human_capsules, active_external_pairs,
+            )
 
         idx = 0
         for pairs, color in groups:
@@ -248,7 +252,8 @@ class ColliderVisualizer:
 
         self.dist_pub.publish(msg)
 
-    def _dist_capsules(self, a_all, b_all, human_capsules):
+    def _dist_capsules(self, a_all, b_all, human_capsules,
+                       active_external_pairs=None):
         self_pairs = []
         human_pairs = []
 
@@ -259,19 +264,30 @@ class ColliderVisualizer:
             self_pairs.append((p1, p2))
 
         if human_capsules:
-            for hcap in human_capsules:
-                for i in range(N_BODIES):
-                    p1, p2 = _closest_points_segments(
-                        a_all[i], b_all[i], hcap['a'], hcap['b'],
-                    )
-                    human_pairs.append((p1, p2))
+            if active_external_pairs is None:
+                active_external_pairs = [
+                    (i, h_idx)
+                    for h_idx in range(len(human_capsules))
+                    for i in range(N_BODIES)
+                ]
+            for i, h_idx in active_external_pairs:
+                if i < 0 or i >= N_BODIES:
+                    continue
+                if h_idx < 0 or h_idx >= len(human_capsules):
+                    continue
+                hcap = human_capsules[h_idx]
+                p1, p2 = _closest_points_segments(
+                    a_all[i], b_all[i], hcap['a'], hcap['b'],
+                )
+                human_pairs.append((p1, p2))
 
         return (
             (self_pairs, (1.0, 1.0, 0.0, 0.5)),
             (human_pairs, (1.0, 0.5, 0.0, 0.5)),
         )
 
-    def _dist_spheres(self, a_all, b_all, human_capsules):
+    def _dist_spheres(self, a_all, b_all, human_capsules,
+                      active_external_pairs=None):
         self_pairs = []
         human_pairs = []
         robot_centers = [
@@ -289,16 +305,28 @@ class ColliderVisualizer:
 
         # Human-robot: line for every robot-sphere to human-sphere pair
         if human_capsules:
+            if active_external_pairs is None:
+                active_external_pairs = [
+                    (i, h_idx)
+                    for h_idx in range(len(human_capsules))
+                    for i in range(N_BODIES)
+                ]
+            human_centers = []
             for hcap in human_capsules:
                 h_len = np.linalg.norm(hcap['a'] - hcap['b']) + 2.0 * hcap['radius']
                 h_n = max(1, round(h_len / (2.0 * hcap['radius'])))
                 h_n += max(0, h_n - 1) * self.sphere_interp
-                h_centers = _np_sphere_centers(hcap['a'], hcap['b'], h_n)
-                for i in range(N_BODIES):
-                    ci = robot_centers[i]
-                    for si in range(self.sphere_counts[i]):
-                        for sj in range(len(h_centers)):
-                            human_pairs.append((ci[si], h_centers[sj]))
+                human_centers.append(_np_sphere_centers(hcap['a'], hcap['b'], h_n))
+            for i, h_idx in active_external_pairs:
+                if i < 0 or i >= N_BODIES:
+                    continue
+                if h_idx < 0 or h_idx >= len(human_centers):
+                    continue
+                ci = robot_centers[i]
+                h_centers = human_centers[h_idx]
+                for si in range(self.sphere_counts[i]):
+                    for sj in range(len(h_centers)):
+                        human_pairs.append((ci[si], h_centers[sj]))
 
         return (
             (self_pairs, (1.0, 1.0, 0.0, 0.5)),

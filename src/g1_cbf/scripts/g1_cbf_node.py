@@ -21,14 +21,18 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPo
 from sensor_msgs.msg import JointState
 
 from cbfpy import CBF
+from functools import partial
+
+from g1_cbf.active_pairs import select_active_external_pairs_jax
 from g1_cbf.cbf_config import G1CollisionCBFConfig
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
     LEG_JOINTS,
+    N_BODIES,
     N_HUMAN_CAPSULES,
     N_LEG_JOINTS,
 )
-from g1_cbf_msg.msg import CapsuleArray
+from g1_cbf_msg.msg import ActiveCollisionPairs, CapsuleArray
 
 
 class G1CBFNode(Node):
@@ -54,6 +58,10 @@ class G1CBFNode(Node):
         self.declare_parameter('human_half_lengths', [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.225, 0.225])
         self.declare_parameter('human_radii', [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.065, 0.065])
         self.declare_parameter('human_radius_scale', 1.0)
+        self.declare_parameter('external_filter_enabled', True)
+        self.declare_parameter('external_activation_distance', 0.35)
+        self.declare_parameter('external_max_active_pairs', 16)
+        self.declare_parameter('external_always_keep_nearest', 4)
 
         dt = self.get_parameter('dt').value
         gamma = self.get_parameter('gamma').value
@@ -79,6 +87,19 @@ class G1CBFNode(Node):
             float(r) * human_radius_scale
             for r in self.get_parameter('human_radii').value
         ]
+        external_filter_enabled = bool(
+            self.get_parameter('external_filter_enabled').value
+        )
+        external_max_active_pairs = int(
+            self.get_parameter('external_max_active_pairs').value
+        )
+        full_external_pairs = N_BODIES * N_HUMAN_CAPSULES
+        if external_filter_enabled:
+            self._external_pair_slots = max(
+                1, min(external_max_active_pairs, full_external_pairs)
+            )
+        else:
+            self._external_pair_slots = full_external_pairs
         config = G1CollisionCBFConfig(
             gamma=gamma,
             margin_phi=margin_phi,
@@ -90,8 +111,13 @@ class G1CBFNode(Node):
             solver_tol=self.get_parameter('solver_tol').value,
             human_half_lengths=list(self.get_parameter('human_half_lengths').value),
             human_radii=human_radii,
+            external_pair_slots=self._external_pair_slots,
         )
         self.cbf = CBF.from_config(config)
+        self._select_active_pairs_jit = jax.jit(partial(
+            select_active_external_pairs_jax,
+            external_pair_slots=self._external_pair_slots,
+        ))
 
         # Patch safety_filter to pass max_iter (cbfpy doesn't expose it)
         max_iter = self.get_parameter('max_iter').value
@@ -116,13 +142,15 @@ class G1CBFNode(Node):
         _u = jnp.zeros(8)
         _ql = jnp.zeros(N_LEG_JOINTS)
         _hc = jnp.zeros((N_HUMAN_CAPSULES, 7))
-        _hn = jnp.array(0)
+        _pairs = jnp.zeros((self._external_pair_slots, 2), dtype=jnp.int32)
+        _pair_mask = jnp.zeros(self._external_pair_slots, dtype=bool)
         t0 = _time.monotonic()
-        _ = self.cbf.safety_filter(_z, _u, _ql, _hc, _hn)
+        _ = self.cbf.safety_filter(_z, _u, _ql, _hc, _pairs, _pair_mask)
         jit_time = _time.monotonic() - t0
         self.get_logger().info(
             f'CBF ready — {config.num_cbf} constraints '
-            f'({geom} mode), JIT compiled in {jit_time:.1f}s'
+            f'({geom} mode), external_pair_slots={self._external_pair_slots}, '
+            f'JIT compiled in {jit_time:.1f}s'
         )
 
         # State
@@ -163,6 +191,9 @@ class G1CBFNode(Node):
         # Publisher
         self.cmd_pub = self.create_publisher(
             JointState, '/joint_commands', sensor_qos,
+        )
+        self.active_pairs_pub = self.create_publisher(
+            ActiveCollisionPairs, '/cbf/active_external_pairs', sensor_qos,
         )
 
         # Timers
@@ -258,15 +289,23 @@ class G1CBFNode(Node):
 
         # Pack for JAX — evaluate barriers at actual or target state
         if self.get_parameter('evaluate_at_actual').value:
-            z = jnp.array(self.q_ctrl, dtype=jnp.float64)
+            z_np = self.q_ctrl
         else:
-            z = jnp.array(self.q_cbf_target, dtype=jnp.float64)
+            z_np = self.q_cbf_target
+        z = jnp.array(z_np, dtype=jnp.float64)
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
         q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
-        human_caps, human_count = self._pack_human_capsules()
+        human_caps, human_mask = self._pack_human_capsules()
+        pair_indices_jnp, pair_mask_jnp, pair_clearances_jnp = (
+            self._select_active_external_pairs(
+                z, q_legs_jnp, human_caps, human_mask,
+            )
+        )
 
         # Single CBF call — FK + proximity + QP all on GPU
-        dq_safe_jnp = self.cbf.safety_filter(z, u_des, q_legs_jnp, human_caps, human_count)
+        dq_safe_jnp = self.cbf.safety_filter(
+            z, u_des, q_legs_jnp, human_caps, pair_indices_jnp, pair_mask_jnp,
+        )
         dq_safe = np.asarray(dq_safe_jnp)
 
         # Integrate safe velocity into persistent target
@@ -283,6 +322,12 @@ class G1CBFNode(Node):
         # Publish safe command
         safe_msg = JointState()
         safe_msg.header.stamp = self.get_clock().now().to_msg()
+        self._publish_active_pairs(
+            safe_msg.header.stamp,
+            pair_indices_jnp,
+            pair_mask_jnp,
+            pair_clearances_jnp,
+        )
 
         if self._passthrough_names:
             safe_msg.name = list(self._passthrough_names)
@@ -307,13 +352,55 @@ class G1CBFNode(Node):
     def _pack_human_capsules(self):
         """Pack human capsules into fixed-size jnp arrays."""
         buf = np.zeros((N_HUMAN_CAPSULES, 7))
+        mask = np.zeros(N_HUMAN_CAPSULES, dtype=bool)
         count = min(len(self._human_capsules), N_HUMAN_CAPSULES)
         for i in range(count):
             c = self._human_capsules[i]
             buf[i, :3] = c['a']
             buf[i, 3:6] = c['b']
             buf[i, 6] = c['radius']
-        return jnp.array(buf, dtype=jnp.float64), jnp.array(count)
+            mask[i] = True
+        return (
+            jnp.array(buf, dtype=jnp.float64),
+            jnp.array(mask, dtype=bool),
+        )
+
+    def _select_active_external_pairs(self, z, q_legs, human_caps, human_mask):
+        return self._select_active_pairs_jit(
+            z,
+            q_legs,
+            human_caps,
+            human_mask,
+            jnp.array(
+                self.get_parameter('external_activation_distance').value,
+                dtype=jnp.float64,
+            ),
+            jnp.array(
+                self.get_parameter('external_always_keep_nearest').value,
+                dtype=jnp.int32,
+            ),
+            jnp.array(
+                self.get_parameter('external_filter_enabled').value,
+                dtype=bool,
+            ),
+        )
+
+    def _publish_active_pairs(self, stamp, pair_indices, pair_mask, clearances):
+        if self.active_pairs_pub.get_subscription_count() == 0:
+            return
+        pair_indices = np.asarray(pair_indices)
+        pair_mask = np.asarray(pair_mask)
+        clearances = np.asarray(clearances)
+        active_count = int(np.count_nonzero(pair_mask))
+
+        msg = ActiveCollisionPairs()
+        msg.header.stamp = stamp
+        msg.header.frame_id = 'pelvis'
+        for slot in range(active_count):
+            msg.robot_body_index.append(int(pair_indices[slot, 0]))
+            msg.human_capsule_index.append(int(pair_indices[slot, 1]))
+            msg.clearance.append(float(clearances[slot]))
+        self.active_pairs_pub.publish(msg)
 
 
 def main(args=None):

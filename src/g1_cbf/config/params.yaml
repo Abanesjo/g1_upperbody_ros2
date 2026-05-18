@@ -18,6 +18,10 @@ g1_cbf_node:
     human_half_lengths: [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.225, 0.225]
     human_radii: [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.065, 0.065]
     human_radius_scale: 1.5
+    external_filter_enabled: true
+    external_activation_distance: 0.35
+    external_max_active_pairs: 16
+    external_always_keep_nearest: 4
 
 g1_cbf_viz_node:
   ros__parameters:
