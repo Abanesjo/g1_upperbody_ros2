@@ -1,5 +1,7 @@
 FROM ros:humble
 
+ARG TARGETARCH
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV PIP_ROOT_USER_ACTION=ignore
@@ -27,7 +29,6 @@ RUN apt install -y \
 
 RUN pip3 install numpy==1.26.4 scipy==1.13.1 opencv-contrib-python==4.7.0.72
 RUN pip3 install osqp "jax[cuda12]" qpax cbfpy
-RUN pip3 install onnxruntime
 
 COPY dependencies /workspace/dependencies
 
@@ -45,9 +46,18 @@ RUN CYCLONEDDS_HOME=/opt/ros/humble pip3 install --no-deps /workspace/dependenci
 RUN pip3 install --no-deps /workspace/dependencies/dpax
 
 #Onnx Runtime C++
-COPY dependencies/onnxruntime/lib/ /usr/local/lib/
-COPY dependencies/onnxruntime/include/ /usr/local/include/
-RUN ln -sf /usr/local/lib/libonnxruntime.so.1.22.0 /usr/local/lib/libonnxruntime.so && ldconfig
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \
+    if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then \
+        ort_src=/workspace/dependencies/onnxruntime_aarch64; \
+    else \
+        ort_src=/workspace/dependencies/onnxruntime; \
+    fi && \
+    ort_version="$(cat "$ort_src/VERSION_NUMBER")" && \
+    cp -a "$ort_src/include/." /usr/local/include/ && \
+    cp -a "$ort_src/lib/." /usr/local/lib/ && \
+    ln -sf "libonnxruntime.so.$ort_version" /usr/local/lib/libonnxruntime.so.1 && \
+    ln -sf libonnxruntime.so.1 /usr/local/lib/libonnxruntime.so && \
+    ldconfig
 
 RUN mkdir -p /workspace/ros2_ws/src
 
