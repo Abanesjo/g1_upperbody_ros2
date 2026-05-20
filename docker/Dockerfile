@@ -26,7 +26,6 @@ RUN apt install -y \
     tmux
 
 RUN pip3 install numpy==1.26.4 scipy==1.13.1 opencv-contrib-python==4.7.0.72
-RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 RUN pip3 install osqp "jax[cuda12]" qpax cbfpy
 RUN pip3 install onnxruntime
 
