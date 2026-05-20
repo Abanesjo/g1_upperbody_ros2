@@ -8,9 +8,6 @@ Subscribes to /joint_commands_unsafe, applies CBF-QP filtering,
 publishes safe commands on /joint_commands at a fixed rate.
 """
 
-import os
-os.environ['JAX_ENABLE_X64'] = '1'
-
 import numpy as np
 import jax
 import jax.numpy as jnp

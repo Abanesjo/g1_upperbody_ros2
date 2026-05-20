@@ -6,7 +6,6 @@ cannot block the safety-filter timer.
 """
 
 import os
-os.environ.setdefault('JAX_ENABLE_X64', '1')
 os.environ.setdefault('JAX_PLATFORM_NAME', 'cpu')
 
 import numpy as np
