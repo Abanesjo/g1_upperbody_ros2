@@ -21,10 +21,11 @@ export CYCLONEDDS_URI=file:///workspace/ros2_ws/src/cyclonedds.xml
 alias mujoco='export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu'
 export XLA_PYTHON_CLIENT_PREALLOCATE="false"
 export JAX_ENABLE_X64=1
-if [ "$(uname -m)" = "aarch64" ]; then
-    export JAX_PLATFORM_NAME=cpu
-fi
 EOF
+
+    if [ "$(uname -m)" = "aarch64" ]; then
+        echo 'export JAX_PLATFORM_NAME=cpu' >> ~/.bashrc
+    fi
 fi
 
 exec bash
