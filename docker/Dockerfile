@@ -18,6 +18,7 @@ RUN apt install -y \
     ros-humble-joint-state-publisher \
     ros-humble-joint-state-publisher-gui \
     ros-humble-pinocchio \
+    ros-humble-joy \
     libyaml-cpp-dev \
     libeigen3-dev \
     python3-pip \
