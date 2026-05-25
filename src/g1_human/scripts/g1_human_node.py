@@ -6,9 +6,6 @@ applies a fixed pelvis-to-pelvis transform, and publishes all collision
 capsules as a CapsuleArray on /human/colliders.
 """
 
-import os
-os.environ['JAX_ENABLE_X64'] = '1'
-
 import numpy as np
 import rclpy
 from rclpy.node import Node

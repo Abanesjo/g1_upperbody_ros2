@@ -3,6 +3,7 @@
   <arg name="rviz" default="false"/>
   <arg name="ghost" default="true"/>
   <arg name="bridge" default="true"/>
+  <arg name="simulator" default="false"/>
   <arg name="viz" default="true"/>
   <arg name="viz_rate" default="5.0"/>
 
@@ -14,11 +15,14 @@
   <group if="$(var bridge)">
     <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
       <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+      <param name="simulator" value="$(var simulator)"/>
     </node>
   </group>
 
   <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" if="$(var rviz)"
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
+
+  <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
 
   <!-- ==================== g1_cbf ==================== -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">

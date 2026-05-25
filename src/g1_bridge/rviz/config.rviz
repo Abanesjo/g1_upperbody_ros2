@@ -16,7 +16,7 @@ Panels:
         - /Collision Distances1/Namespaces1
         - /Obstacle Markers1
       Splitter Ratio: 0.5
-    Tree Height: 365
+    Tree Height: 488
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -513,17 +513,17 @@ Visualization Manager:
         Value: /robot_colliders
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: Collision Distances
       Namespaces:
-        distances: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /collision_distances
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
       Enabled: false
       Max Value: 1
