@@ -22,7 +22,7 @@ UPPER_BODY_JOINTS = [
     ("right_elbow_joint", 25),
 ]
 
-CSV_FPS = 30.0  # Native frame rate of the CSV motion data
+CSV_FPS = 15.0  # Native frame rate of the CSV motion data
 
 
 class MotionPlaybackNode(Node):

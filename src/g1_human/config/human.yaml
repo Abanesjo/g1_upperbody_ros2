@@ -16,4 +16,4 @@ g1_human_node:
     collision_geometry: "capsules"  # match params.yaml: 'capsules', 'spheres', or 'boxes'
     sphere_interpolation_level: 0
     sphere_radius_gain: 1.0
-    human_radius_scale: 1.0
+    human_radius_scale: 1.5

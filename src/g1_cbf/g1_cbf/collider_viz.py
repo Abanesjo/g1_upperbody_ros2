@@ -93,7 +93,11 @@ class ColliderVisualizer:
 
     def __init__(self, node, geometry_type='capsules',
                  sphere_interpolation_level=0, sphere_radius_gain=1.0):
-        self.geometry_type = geometry_type
+        self.geometry_type = str(geometry_type).lower()
+        if self.geometry_type not in ('capsules', 'spheres'):
+            raise ValueError(
+                "collision_geometry must be 'capsules' or 'spheres'"
+            )
         self.sphere_interp = sphere_interpolation_level
         self.sphere_rg = sphere_radius_gain
         self.sphere_counts = compute_sphere_counts(sphere_interpolation_level)
@@ -110,8 +114,6 @@ class ColliderVisualizer:
 
         if self.geometry_type == 'spheres':
             msg = self._build_spheres(stamp, a_all, b_all, radii)
-        elif self.geometry_type == 'boxes':
-            msg = self._build_boxes(stamp, a_all, b_all, radii, half_lengths)
         else:
             msg = self._build_capsules(stamp, a_all, b_all, radii, half_lengths)
 
@@ -141,25 +143,6 @@ class ColliderVisualizer:
                     diam, diam, diam, color,
                 ))
                 mid += 1
-
-        self._cleanup(stamp, msg, mid)
-        return msg
-
-    def _build_boxes(self, stamp, a_all, b_all, radii, half_lengths):
-        msg = MarkerArray()
-        self._delete_all_once(stamp, msg, '_colliders_initialized', 'colliders')
-        mid = 0
-        for i in range(N_BODIES):
-            color = _COLORS.get(BODY_NAMES[i], (0.5, 0.5, 0.5, 0.3))
-            center = (a_all[i] + b_all[i]) / 2.0
-            quat = _axis_to_quat(a_all[i], b_all[i])
-            r = float(radii[i])
-            h = float(half_lengths[i])
-            msg.markers.append(self._make_marker(
-                stamp, mid, Marker.CUBE, center, quat,
-                2.0 * r, 2.0 * r, 2.0 * h, color,
-            ))
-            mid += 1
 
         self._cleanup(stamp, msg, mid)
         return msg

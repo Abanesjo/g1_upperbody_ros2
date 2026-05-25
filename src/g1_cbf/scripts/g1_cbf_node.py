@@ -43,8 +43,10 @@ class G1CBFNode(Node):
 
         # Parameters
         self.declare_parameter('dt', 0.02)
-        self.declare_parameter('margin_phi', 0.001)
-        self.declare_parameter('gamma', 5.0)
+        self.declare_parameter('internal_margin_phi', 0.001)
+        self.declare_parameter('external_margin_phi', 0.001)
+        self.declare_parameter('internal_gamma', 5.0)
+        self.declare_parameter('external_gamma', 5.0)
         self.declare_parameter('K', 5.0)
         self.declare_parameter('max_velocity', 2.0)
         self.declare_parameter('lpf_gain', 0.0)
@@ -53,7 +55,6 @@ class G1CBFNode(Node):
         self.declare_parameter('collision_geometry', 'capsules')
         self.declare_parameter('sphere_interpolation_level', 0)
         self.declare_parameter('sphere_radius_gain', 1.0)
-        self.declare_parameter('beta', 1.05)
         self.declare_parameter('publish_viz', False)
         self.declare_parameter('max_iter', 100)
         self.declare_parameter('solver_tol', 1e-3)
@@ -70,15 +71,28 @@ class G1CBFNode(Node):
         self.declare_parameter('internal_always_keep_nearest', 12)
 
         dt = self.get_parameter('dt').value
-        gamma = self.get_parameter('gamma').value
-        margin_phi = self.get_parameter('margin_phi').value
+        internal_gamma = float(self.get_parameter('internal_gamma').value)
+        external_gamma = float(self.get_parameter('external_gamma').value)
+        internal_margin_phi = float(
+            self.get_parameter('internal_margin_phi').value
+        )
+        external_margin_phi = float(
+            self.get_parameter('external_margin_phi').value
+        )
         max_velocity = self.get_parameter('max_velocity').value
-        geom = self.get_parameter('collision_geometry').value
+        geom = str(self.get_parameter('collision_geometry').value).lower()
+        if geom not in ('capsules', 'spheres'):
+            raise ValueError(
+                "collision_geometry must be 'capsules' or 'spheres'"
+            )
 
         self.get_logger().info(
-            f'CBF params: dt={dt}, gamma={gamma}, '
-            f'margin_phi={margin_phi}, max_vel={max_velocity}, '
-            f'geometry={geom}'
+            f'CBF params: dt={dt}, '
+            f'internal_gamma={internal_gamma}, '
+            f'external_gamma={external_gamma}, '
+            f'internal_margin_phi={internal_margin_phi}, '
+            f'external_margin_phi={external_margin_phi}, '
+            f'max_vel={max_velocity}, geometry={geom}'
         )
         if self.get_parameter('publish_viz').value:
             self.get_logger().warn(
@@ -134,13 +148,14 @@ class G1CBFNode(Node):
             else:
                 self._internal_pair_slots = full_internal_pairs
         config = G1CollisionCBFConfig(
-            gamma=gamma,
-            margin_phi=margin_phi,
+            internal_gamma=internal_gamma,
+            external_gamma=external_gamma,
+            internal_margin_phi=internal_margin_phi,
+            external_margin_phi=external_margin_phi,
             max_velocity=max_velocity,
             collision_geometry=geom,
             sphere_interpolation_level=sphere_interpolation_level,
             sphere_radius_gain=sphere_radius_gain,
-            beta=self.get_parameter('beta').value,
             solver_tol=self.get_parameter('solver_tol').value,
             human_half_lengths=list(self.get_parameter('human_half_lengths').value),
             human_radii=human_radii,
