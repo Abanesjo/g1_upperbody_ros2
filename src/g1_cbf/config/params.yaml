@@ -2,7 +2,7 @@ g1_cbf_node:
   ros__parameters:
     dt: 0.01
     margin_phi: 0.01  # [m^2], minimum squared distance margin
-    gamma: 0.25        # CBF gain
+    gamma: 1.0        # CBF gain
     K: 30.0           # proportional speed gain
     max_velocity: 100.0  # rad/s velocity limit
     max_lead: 0.5        # max distance (rad) target can lead actual position
