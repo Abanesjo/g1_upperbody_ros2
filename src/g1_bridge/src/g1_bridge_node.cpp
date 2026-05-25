@@ -42,6 +42,8 @@ constexpr float NEUTRAL_KD = 1.0F;
 constexpr float DAMP_KP = 0.0F;
 constexpr float DAMP_KD = 2.0F;
 constexpr auto MOTION_CALL_TIMEOUT = std::chrono::seconds(5);
+constexpr auto MOTION_DISCOVERY_TIMEOUT = std::chrono::seconds(3);
+constexpr auto MOTION_DISCOVERY_POLL_INTERVAL = std::chrono::milliseconds(50);
 constexpr auto MOTION_RELEASE_RETRY_DELAY = std::chrono::seconds(2);
 constexpr char MOTION_SWITCH_REQUEST_TOPIC[] = "/api/motion_switcher/request";
 constexpr char MOTION_SWITCH_RESPONSE_TOPIC[] = "/api/motion_switcher/response";
@@ -95,6 +97,17 @@ std::string QueryServiceName(const std::string &form, const std::string &name) {
     }
   }
   return name;
+}
+
+const char *MotionSwitcherApiName(int64_t api_id) {
+  switch (api_id) {
+    case MOTION_SWITCHER_API_ID_CHECK_MODE:
+      return "CheckMode";
+    case MOTION_SWITCHER_API_ID_RELEASE_MODE:
+      return "ReleaseMode";
+    default:
+      return "Unknown";
+  }
 }
 
 enum class OrchestratorState {
@@ -168,6 +181,36 @@ class G1BridgeNode : public rclcpp::Node {
   }
 
  private:
+  bool WaitForMotionSwitcherDiscovery(
+      int64_t api_id,
+      const rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr
+          &request_pub,
+      const rclcpp::Subscription<unitree_api::msg::Response>::SharedPtr
+          &response_sub,
+      rclcpp::executors::SingleThreadedExecutor &executor) {
+    const auto deadline =
+        std::chrono::steady_clock::now() + MOTION_DISCOVERY_TIMEOUT;
+
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
+      executor.spin_some(std::chrono::milliseconds(0));
+      if (request_pub->get_subscription_count() > 0 &&
+          response_sub->get_publisher_count() > 0) {
+        return true;
+      }
+      std::this_thread::sleep_for(MOTION_DISCOVERY_POLL_INTERVAL);
+    }
+
+    RCLCPP_FATAL(this->get_logger(),
+                 "%s failed: timed out waiting for Unitree motion switcher "
+                 "DDS endpoints on %s and %s (request subscribers: %zu, "
+                 "response publishers: %zu)",
+                 MotionSwitcherApiName(api_id), MOTION_SWITCH_REQUEST_TOPIC,
+                 MOTION_SWITCH_RESPONSE_TOPIC,
+                 request_pub->get_subscription_count(),
+                 response_sub->get_publisher_count());
+    return false;
+  }
+
   int32_t CallMotionSwitcher(int64_t api_id, nlohmann::json *response_json) {
     using Request = unitree_api::msg::Request;
     using Response = unitree_api::msg::Response;
@@ -181,6 +224,7 @@ class G1BridgeNode : public rclcpp::Node {
     Request req;
     req.header.identity.id = GetMonotonicNanoseconds();
     req.header.identity.api_id = api_id;
+    req.parameter = "{}";
 
     const auto identity_id = req.header.identity.id;
     auto response_promise = std::make_shared<std::promise<Response>>();
@@ -199,24 +243,43 @@ class G1BridgeNode : public rclcpp::Node {
           }
         });
 
-    motion_switch_request_pub_->publish(req);
-
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(this->get_node_base_interface());
+
+    if (!WaitForMotionSwitcherDiscovery(api_id, motion_switch_request_pub_,
+                                        response_sub, executor)) {
+      executor.remove_node(this->get_node_base_interface());
+      return UT_ROBOT_TASK_TIMEOUT;
+    }
+
+    motion_switch_request_pub_->publish(req);
+
     const auto status =
         executor.spin_until_future_complete(response_future,
                                             MOTION_CALL_TIMEOUT);
     executor.remove_node(this->get_node_base_interface());
 
     if (status == rclcpp::FutureReturnCode::TIMEOUT) {
+      RCLCPP_FATAL(this->get_logger(),
+                   "%s failed: no response from Unitree motion switcher within "
+                   "%ld seconds",
+                   MotionSwitcherApiName(api_id), MOTION_CALL_TIMEOUT.count());
       return UT_ROBOT_TASK_TIMEOUT;
     }
     if (status != rclcpp::FutureReturnCode::SUCCESS) {
+      RCLCPP_FATAL(this->get_logger(),
+                   "%s failed: executor returned before a motion switcher "
+                   "response was received",
+                   MotionSwitcherApiName(api_id));
       return UT_ROBOT_TASK_UNKNOWN_ERROR;
     }
 
     const auto response = response_future.get();
     if (response.header.status.code != UT_ROBOT_SUCCESS) {
+      RCLCPP_FATAL(this->get_logger(),
+                   "%s failed: Unitree motion switcher returned status code %d",
+                   MotionSwitcherApiName(api_id),
+                   response.header.status.code);
       return response.header.status.code;
     }
 
