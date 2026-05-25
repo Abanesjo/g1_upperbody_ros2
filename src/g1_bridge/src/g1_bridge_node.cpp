@@ -61,6 +61,14 @@ const std::array<std::string, G1_NUM_MOTOR> JOINT_NAMES = {
     "right_wrist_yaw_joint",
 };
 
+constexpr std::array<float, G1_NUM_MOTOR> DEFAULT_JOINT_POS = {
+    -0.1F, 0.0F, 0.0F, 0.3F, -0.2F, 0.0F,
+    -0.1F, 0.0F, 0.0F, 0.3F, -0.2F, 0.0F,
+    0.0F, 0.0F, 0.0F,
+    0.35F, 0.18F, 0.0F, 0.87F, 0.0F, 0.0F, 0.0F,
+    0.35F, -0.18F, 0.0F, 0.87F, 0.0F, 0.0F, 0.0F,
+};
+
 int64_t GetMonotonicNanoseconds() {
   timespec ts {};
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -398,10 +406,11 @@ class G1BridgeNode : public rclcpp::Node {
       auto &motor_cmd = cmd.motor_cmd[i];
       motor_cmd.mode = 1;
       motor_cmd.tau = 0.0F;
-      motor_cmd.q =
-          neutral_ramp_active_
-              ? static_cast<float>((1.0 - ratio) * neutral_start_positions_[i])
-              : 0.0F;
+      motor_cmd.q = neutral_ramp_active_
+                        ? static_cast<float>(
+                              (1.0 - ratio) * neutral_start_positions_[i] +
+                              ratio * DEFAULT_JOINT_POS[i])
+                        : DEFAULT_JOINT_POS[i];
       motor_cmd.dq = 0.0F;
       motor_cmd.kp = (i < 13) ? NEUTRAL_LEG_KP : NEUTRAL_UPPER_KP;
       motor_cmd.kd = NEUTRAL_KD;

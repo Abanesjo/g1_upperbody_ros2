@@ -2,7 +2,8 @@
     <Domain>
         <General>
             <Interfaces>
-                <NetworkInterface name="eno1" priority="default" multicast="true" />
+                <!-- <NetworkInterface name="eno1" priority="default" multicast="true" /> -->
+                <NetworkInterface name="lo" priority="default" multicast="false" />
             </Interfaces>
         </General>
         <Discovery>
