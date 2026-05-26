@@ -46,6 +46,11 @@ RUN cd /workspace/dependencies/unitree_sdk2 && mkdir build && cd build && \
 RUN CYCLONEDDS_HOME=/opt/ros/humble pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
 RUN pip3 install --no-deps /workspace/dependencies/dpax
 
+#inspire hand
+WORKDIR /workspace/dependencies/dfx_inspire_service
+
+RUN mkdir build && cd build && cmake .. && cmake --build .
+
 #Onnx Runtime C++
 RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then \

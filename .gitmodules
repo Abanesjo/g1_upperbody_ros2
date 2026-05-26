@@ -13,3 +13,6 @@
 [submodule "dependencies/qpax"]
 	path = dependencies/qpax
 	url = https://github.com/kevin-tracy/qpax
+[submodule "dependencies/dfx_inspire_service"]
+	path = dependencies/dfx_inspire_service
+	url = https://github.com/Abanesjo/dfx_inspire_service
