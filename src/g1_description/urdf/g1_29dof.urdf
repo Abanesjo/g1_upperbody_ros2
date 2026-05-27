@@ -629,12 +629,12 @@
       <material name="white"/>
     </visual>
   </link>
-  <joint name="left_hand_palm_joint" type="fixed">
+  <!-- <joint name="left_hand_palm_joint" type="fixed">
     <origin xyz="0.0415 0.003 0" rpy="0 0 0"/>
     <parent link="left_wrist_yaw_link"/>
     <child link="left_rubber_hand"/>
-  </joint>
-  <link name="left_rubber_hand">
+  </joint> -->
+  <!-- <link name="left_rubber_hand">
     <inertial>
       <origin xyz="0.05361310808 -0.00295905240 0.00215413091" rpy="0 0 0"/>
       <mass value="0.170"/>
@@ -647,7 +647,7 @@
       </geometry>
       <material name="white"/>
     </visual>
-  </link>
+  </link> -->
   <link name="right_shoulder_pitch_link">
     <inertial>
       <origin xyz="0 -0.035892 -0.011628" rpy="0 0 0"/>
@@ -807,12 +807,12 @@
       <material name="white"/>
     </visual>
   </link>
-  <joint name="right_hand_palm_joint" type="fixed">
+  <!-- <joint name="right_hand_palm_joint" type="fixed">
     <origin xyz="0.0415 -0.003 0" rpy="0 0 0"/>
     <parent link="right_wrist_yaw_link"/>
     <child link="right_rubber_hand"/>
-  </joint>
-  <link name="right_rubber_hand">
+  </joint> -->
+  <!-- <link name="right_rubber_hand">
     <inertial>
       <origin xyz="0.05361310808 0.00295905240 0.00215413091" rpy="0 0 0"/>
       <mass value="0.170"/>
@@ -825,5 +825,5 @@
       </geometry>
       <material name="white"/>
     </visual>
-  </link>
+  </link> -->
 </robot>
