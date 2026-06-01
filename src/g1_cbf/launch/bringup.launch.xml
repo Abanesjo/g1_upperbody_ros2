@@ -1,5 +1,5 @@
 <launch>
-  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29dof.urdf"/>
+  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
   <arg name="rviz" default="false"/>
   <arg name="ghost" default="true"/>
   <arg name="bridge" default="true"/>

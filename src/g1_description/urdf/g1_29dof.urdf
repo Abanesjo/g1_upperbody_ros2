@@ -7,7 +7,7 @@
   </material>
 
   <mujoco>
-    <compiler meshdir="meshes" discardvisual="false"/>
+    <compiler discardvisual="false"/>
   </mujoco>
 
   <!-- [CAUTION] uncomment when convert to mujoco -->
