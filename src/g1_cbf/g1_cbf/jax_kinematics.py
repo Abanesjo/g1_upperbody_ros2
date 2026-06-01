@@ -101,6 +101,14 @@ def _np_T(R, t):
 
 # --- Upper body chain ---
 
+# Collider orientation helper: capsule endpoints are generated along each
+# body transform's local Z axis, so this aligns local Z with the arm's +X axis.
+_R_CAPSULE_Z_TO_ARM_X = np.array([
+    [0.0, 0.0, 1.0],
+    [0.0, 1.0, 0.0],
+    [-1.0, 0.0, 0.0],
+])
+
 # pelvis → waist_yaw_joint (uncontrolled, q=0, axis=Z)
 # origin: xyz="0 0 0" rpy="0 0 0"
 _T_PELVIS_TO_WAIST_YAW = jnp.array(_np_T(_I3, [0.0, 0.0, 0.0]))
@@ -144,7 +152,7 @@ _T_L_ELBOW_TO_WRIST_ROLL = jnp.array(
 _T_L_WRIST_ROLL_TO_PITCH = jnp.array(_np_T(_I3, [0.038, 0.0, 0.0]))
 _T_L_WRIST_PITCH_TO_YAW = jnp.array(_np_T(_I3, [0.046, 0.0, 0.0]))
 _T_L_WRIST_YAW_TO_HAND_BASE = jnp.array(_np_T(
-    _np_rpy(0.0, 0.0, _pi / 2.0),
+    _R_CAPSULE_Z_TO_ARM_X,
     [0.15, 0.0, 0.0],
 ))
 
@@ -177,7 +185,7 @@ _T_R_ELBOW_TO_WRIST_ROLL = jnp.array(
 _T_R_WRIST_ROLL_TO_PITCH = jnp.array(_np_T(_I3, [0.038, 0.0, 0.0]))
 _T_R_WRIST_PITCH_TO_YAW = jnp.array(_np_T(_I3, [0.046, 0.0, 0.0]))
 _T_R_WRIST_YAW_TO_HAND_BASE = jnp.array(_np_T(
-    _np_rpy(_pi, 0.0, -_pi / 2.0),
+    _R_CAPSULE_Z_TO_ARM_X,
     [0.15, 0.0, 0.0],
 ))
 
@@ -233,10 +241,10 @@ BODY_INDEX = {name: i for i, name in enumerate(BODY_NAMES)}
 
 # (half_length, radius) per body
 HALF_LENGTHS = jnp.array([
-    0.33, 0.20, 0.20, 0.145, 0.145, 0.15, 0.15, 0.05, 0.05,
+    0.33, 0.20, 0.20, 0.145, 0.145, 0.15, 0.15, 0.16, 0.16,
 ])
 RADII = jnp.array([
-    0.1, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.05, 0.05,
+    0.1, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.075, 0.075,
 ])
 
 # Collision pairs as index tuples
