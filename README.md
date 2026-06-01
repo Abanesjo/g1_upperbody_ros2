@@ -1,9 +1,52 @@
-# unitree_ros2_template
+# g1_upperbody_ros2 
+Low level control for a Unitree G1 robot implementing safe human imitation with CBF, along with lower body stability and velocity tracking via an RL policy. 
 
-A docker image that has unitree messages, useful for building ROS2 packages that rely on it. 
+## Prerequisites
+
+The package works on both x86 and ARM systems but require an NVIDIA GPU. Docker is used to streamline the installation process. If not already, please install docker and NVIDIA's docker container toolkit on your system. Thus, the following are required; 
+
+1. [Docker](https://docs.docker.com/engine/install/)
+2. [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+
 
 ## Usage
+
+Install and build the docker container using the following command.
+
 ```
-git clone --recursive https://github.com/Abanesjo/unitree_ros2_template
-./build_and_run.sh
+git clone --recursive https://github.com/Abanesjo/g1_upperbody_ros2
+cd docker
+docker compose up --build
 ```
+
+Next, enter the docker container
+
+```
+docker exec -it g1_upperbody_ros2 bash
+```
+
+This will give you access to the workspace within the container. The container already has tmux installed. So you can run
+
+```
+tmux
+```
+
+and execute the following commands to test the functionality. 
+
+### Motion from data
+
+In one terminal within the container: 
+```
+ros2 launch g1_cbf bringup.launch.xml rviz:=true simulator:=true
+```
+
+And in another terminal: 
+```
+ros2 launch g1_human g1_human_manual.launch.xml
+```
+
+You will see a window below
+
+![image](docs/rviz.png)
+
+
