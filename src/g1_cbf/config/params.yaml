@@ -4,7 +4,7 @@ g1_cbf_node:
     internal_margin_phi: 0.01  # [m], minimum clearance margin for self-collision
     external_margin_phi: 0.2  # [m], minimum clearance margin for human-robot collision
     internal_gamma: 5.0        # CBF gain for self-collision
-    external_gamma: 0.05        # CBF gain for human-robot collision
+    external_gamma: 5.0        # CBF gain for human-robot collision
     K: 10.0           # proportional speed gain
     max_velocity: 2.0  # rad/s velocity limit
     max_lead: 0.5        # max distance (rad) target can lead actual position
