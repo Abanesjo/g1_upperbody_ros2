@@ -6,7 +6,7 @@ source /opt/ros/humble/setup.bash
 cd /workspace/ros2_ws
 
 rosdep install --from-paths src --ignore-src -r -y
-colcon build --symlink-install --parallel-workers $(( $(nproc) / 2 ))
+colcon build --symlink-install --executor sequential
 source /workspace/ros2_ws/install/setup.bash
 
 
