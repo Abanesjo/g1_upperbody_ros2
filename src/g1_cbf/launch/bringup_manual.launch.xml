@@ -5,7 +5,7 @@
   <arg name="bridge" default="true"/>
   <arg name="simulator" default="false"/>
   <arg name="viz" default="true"/>
-  <arg name="viz_rate" default="5.0"/>
+  <arg name="viz_rate" default="100.0"/>
 
   <!-- ==================== g1_bridge ==================== -->
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">

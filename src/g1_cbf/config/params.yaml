@@ -1,16 +1,16 @@
 g1_cbf_node:
   ros__parameters:
     dt: 0.01
-    internal_margin_phi: 0.01  # [m], minimum clearance margin for self-collision
-    external_margin_phi: 0.2  # [m], minimum clearance margin for human-robot collision
-    internal_gamma: 5.0        # CBF gain for self-collision
-    external_gamma: 5.0        # CBF gain for human-robot collision
+    internal_margin_phi: 0.05  # [m], minimum clearance margin for self-collision
+    external_margin_phi: 0.15  # [m], minimum clearance margin for human-robot collision
+    internal_gamma: 4.0        # CBF gain for self-collision
+    external_gamma: 4.0        # CBF gain for human-robot collision
     K: 10.0           # proportional speed gain
     max_velocity: 2.0  # rad/s velocity limit
-    max_lead: 0.5        # max distance (rad) target can lead actual position
+    max_lead: 1.5        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
     evaluate_at_actual: true  # true: barriers at actual state, false: barriers at target
-    collision_geometry: "capsules"  # 'capsules' or 'spheres'
+    collision_geometry: "spheres"  # 'capsules' or 'spheres'
     sphere_interpolation_level: 0   # extra spheres between each base pair (spheres mode)
     sphere_radius_gain: 1.0         # radius scaling (spheres mode)
     max_iter: 200     # QP solver max iterations
@@ -32,6 +32,6 @@ g1_cbf_viz_node:
   ros__parameters:
     publish_viz: false
     viz_rate: 100.0
-    collision_geometry: "capsules"
+    collision_geometry: "spheres"
     sphere_interpolation_level: 1
     sphere_radius_gain: 1.0
