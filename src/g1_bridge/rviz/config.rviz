@@ -73,7 +73,137 @@ Visualization Manager:
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
+        L_hand_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_index_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_index_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_middle_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_middle_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_pinky_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_pinky_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_ring_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_ring_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_proximal_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         Link Tree Style: Links in Alphabetic Order
+        R_hand_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_index_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_index_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_middle_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_middle_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_pinky_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_pinky_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_ring_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_ring_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_proximal_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         d435_link:
           Alpha: 1
           Show Axes: false
@@ -122,11 +252,6 @@ Visualization Manager:
           Show Trail: false
           Value: true
         left_knee_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_rubber_hand:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -215,11 +340,6 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        right_rubber_hand:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         right_shoulder_pitch_link:
           Alpha: 1
           Show Axes: false
@@ -256,11 +376,6 @@ Visualization Manager:
           Show Trail: false
           Value: true
         waist_roll_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        waist_support_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -295,7 +410,137 @@ Visualization Manager:
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
+        L_hand_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_index_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_index_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_middle_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_middle_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_pinky_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_pinky_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_ring_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_ring_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        L_thumb_proximal_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         Link Tree Style: Links in Alphabetic Order
+        R_hand_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_index_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_index_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_middle_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_middle_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_pinky_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_pinky_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_ring_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_ring_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_intermediate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        R_thumb_proximal_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         d435_link:
           Alpha: 1
           Show Axes: false
@@ -344,11 +589,6 @@ Visualization Manager:
           Show Trail: false
           Value: true
         left_knee_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_rubber_hand:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -437,11 +677,6 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        right_rubber_hand:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         right_shoulder_pitch_link:
           Alpha: 1
           Show Axes: false
@@ -482,11 +717,6 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        waist_support_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         waist_yaw_link:
           Alpha: 1
           Show Axes: false
@@ -513,17 +743,17 @@ Visualization Manager:
         Value: /robot_colliders
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
+      Enabled: true
       Name: Collision Distances
       Namespaces:
-        {}
+        distances: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /collision_distances
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Image
       Enabled: false
       Max Value: 1
@@ -554,7 +784,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        human_colliders: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -608,25 +838,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 1.371437907218933
+      Distance: 1.162042498588562
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.16171935200691223
-        Y: 0.24283146858215332
-        Z: -0.06255026161670685
+        X: 0.15178093314170837
+        Y: -0.33615466952323914
+        Z: -0.06422963738441467
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.05979684740304947
+      Pitch: -0.1752031296491623
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 0.0725453570485115
+      Yaw: 0.07254510372877121
     Saved: ~
 Window Geometry:
   Displays:
@@ -646,5 +876,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 938
-  X: 603
-  Y: 94
+  X: 387
+  Y: 90
