@@ -20,6 +20,7 @@ RUN apt install -y \
     ros-humble-pinocchio \
     ros-humble-joy \
     ros-humble-foxglove-bridge \
+    ros-humble-rqt-tf-tree \
     libyaml-cpp-dev \
     libeigen3-dev \
     python3-pip \
@@ -36,16 +37,21 @@ COPY dependencies /workspace/dependencies
 
 #CycloneDDS
 RUN cd /workspace/dependencies/cyclonedds && mkdir build && cd build && \
-    cmake .. && make -j$(($(nproc) / 2)) && make install && ldconfig
+    cmake .. && make && make install && ldconfig
 
 #unitree_sdk2
 RUN cd /workspace/dependencies/unitree_sdk2 && mkdir build && cd build && \
-    cmake .. && make -j$(($(nproc) / 2)) && make install && ldconfig
+    cmake .. && make && make install && ldconfig
 
 #unitree_sdk2_python
 # RUN CYCLONEDDS_HOME=/usr/local pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
 RUN CYCLONEDDS_HOME=/opt/ros/humble pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
 RUN pip3 install --no-deps /workspace/dependencies/dpax
+
+#inspire hand
+WORKDIR /workspace/dependencies/dfx_inspire_service
+
+RUN mkdir build && cd build && cmake .. && cmake --build .
 
 #Onnx Runtime C++
 RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \

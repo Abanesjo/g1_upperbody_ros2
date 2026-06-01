@@ -20,6 +20,8 @@ _COLORS = {
     'right_shoulder': (0.9, 0.2, 0.3, 0.3),
     'left_thigh': (0.2, 0.7, 0.7, 0.3),
     'right_thigh': (0.7, 0.7, 0.2, 0.3),
+    'left_hand': (0.55, 0.0, 0.9, 0.45),
+    'right_hand': (0.55, 0.0, 0.9, 0.45),
 }
 
 
@@ -131,6 +133,14 @@ class ColliderVisualizer:
             shaft_len = 2.0 * seg_half
             center = (a_all[i] + b_all[i]) / 2.0
             quat = _axis_to_quat(a_all[i], b_all[i])
+
+            if shaft_len <= 1e-9:
+                msg.markers.append(self._make_marker(
+                    stamp, mid, Marker.SPHERE, center, quat,
+                    diam, diam, diam, color,
+                ))
+                mid += 1
+                continue
 
             msg.markers.append(self._make_marker(
                 stamp, mid, Marker.CYLINDER, center, quat,

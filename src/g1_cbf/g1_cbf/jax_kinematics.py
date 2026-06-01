@@ -135,6 +135,19 @@ _T_L_ROLL_TO_L_YAW = jnp.array(_np_T(_I3, [0.0, 0.00624, -0.1032]))
 # origin: xyz="0.015783 0 -0.080518"
 _T_L_YAW_TO_L_ELBOW = jnp.array(_np_T(_I3, [0.015783, 0.0, -0.080518]))
 
+# left_elbow_link → neutral wrist chain → L_hand_base_link
+# Wrist joints are not controlled by the CBF, so their joint rotations are
+# fixed at zero. Origins are from g1_29_inspire.urdf.
+_T_L_ELBOW_TO_WRIST_ROLL = jnp.array(
+    _np_T(_I3, [0.100, 0.00188791, -0.010])
+)
+_T_L_WRIST_ROLL_TO_PITCH = jnp.array(_np_T(_I3, [0.038, 0.0, 0.0]))
+_T_L_WRIST_PITCH_TO_YAW = jnp.array(_np_T(_I3, [0.046, 0.0, 0.0]))
+_T_L_WRIST_YAW_TO_HAND_BASE = jnp.array(_np_T(
+    _np_rpy(0.0, 0.0, _pi / 2.0),
+    [0.15, 0.0, 0.0],
+))
+
 # torso_link → right_shoulder_pitch_joint (q[5], axis=Y)
 # origin: xyz="0.0039563 -0.10021 0.23778" rpy="-0.27931 5.49E-05 0.00019159"
 _T_TORSO_TO_R_PITCH = jnp.array(_np_T(
@@ -156,6 +169,17 @@ _T_R_ROLL_TO_R_YAW = jnp.array(_np_T(_I3, [0.0, -0.00624, -0.1032]))
 # right_shoulder_yaw_link → right_elbow_joint (q[7], axis=Y)
 # origin: xyz="0.015783 0 -0.080518"
 _T_R_YAW_TO_R_ELBOW = jnp.array(_np_T(_I3, [0.015783, 0.0, -0.080518]))
+
+# right_elbow_link → neutral wrist chain → R_hand_base_link
+_T_R_ELBOW_TO_WRIST_ROLL = jnp.array(
+    _np_T(_I3, [0.100, -0.00188791, -0.010])
+)
+_T_R_WRIST_ROLL_TO_PITCH = jnp.array(_np_T(_I3, [0.038, 0.0, 0.0]))
+_T_R_WRIST_PITCH_TO_YAW = jnp.array(_np_T(_I3, [0.046, 0.0, 0.0]))
+_T_R_WRIST_YAW_TO_HAND_BASE = jnp.array(_np_T(
+    _np_rpy(_pi, 0.0, -_pi / 2.0),
+    [0.15, 0.0, 0.0],
+))
 
 # --- Leg chain joint origins ---
 # q_legs[0..5] = L_hip_pitch, L_hip_roll, L_hip_yaw, R_hip_pitch, R_hip_roll, R_hip_yaw
@@ -202,13 +226,18 @@ BODY_NAMES = [
     'torso', 'left_arm', 'right_arm',
     'left_shoulder', 'right_shoulder',
     'left_thigh', 'right_thigh',
+    'left_hand', 'right_hand',
 ]
 N_BODIES = len(BODY_NAMES)
 BODY_INDEX = {name: i for i, name in enumerate(BODY_NAMES)}
 
 # (half_length, radius) per body
-HALF_LENGTHS = jnp.array([0.33, 0.20, 0.20, 0.145, 0.145, 0.15, 0.15])
-RADII = jnp.array([0.1, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065])
+HALF_LENGTHS = jnp.array([
+    0.33, 0.20, 0.20, 0.145, 0.145, 0.15, 0.15, 0.05, 0.05,
+])
+RADII = jnp.array([
+    0.1, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.05, 0.05,
+])
 
 # Collision pairs as index tuples
 COLLISION_PAIRS = [
@@ -221,6 +250,18 @@ COLLISION_PAIRS = [
     ('right_arm', 'right_thigh'),
     ('left_shoulder', 'right_arm'),
     ('right_shoulder', 'left_arm'),
+    ('left_hand', 'torso'),
+    ('left_hand', 'left_thigh'),
+    ('left_hand', 'right_thigh'),
+    ('left_hand', 'right_arm'),
+    ('left_hand', 'left_shoulder'),
+    ('left_hand', 'right_shoulder'),
+    ('right_hand', 'torso'),
+    ('right_hand', 'left_thigh'),
+    ('right_hand', 'right_thigh'),
+    ('right_hand', 'left_arm'),
+    ('right_hand', 'left_shoulder'),
+    ('right_hand', 'right_shoulder'),
 ]
 COLLISION_PAIR_INDICES = [
     (BODY_INDEX[a], BODY_INDEX[b]) for a, b in COLLISION_PAIRS
@@ -267,7 +308,7 @@ def fk_body_transforms(q, q_legs):
                 R_hip_pitch, R_hip_roll, R_hip_yaw].
 
     Returns:
-        Tuple of 7 transforms (4x4 each), ordered per BODY_NAMES.
+        Tuple of transforms (4x4 each), ordered per BODY_NAMES.
     """
     # Waist chain: pelvis → waist_yaw(0) → waist_roll(q0) → waist_pitch(q1) → torso
     T = _T_PELVIS_TO_WAIST_YAW  # waist_yaw origin (identity)
@@ -290,6 +331,11 @@ def fk_body_transforms(q, q_legs):
     T = T @ _T_L_YAW_TO_L_ELBOW
     T_l_elbow_frame = _joint_T_y(T, q[4])  # left_elbow → left_elbow_link
     T_l_arm = T_l_elbow_frame @ _OFFSET_L_ARM
+    T = T_l_elbow_frame @ _T_L_ELBOW_TO_WRIST_ROLL
+    # left wrist roll/pitch/yaw are fixed at neutral for CBF geometry.
+    T = T @ _T_L_WRIST_ROLL_TO_PITCH
+    T = T @ _T_L_WRIST_PITCH_TO_YAW
+    T_l_hand = T @ _T_L_WRIST_YAW_TO_HAND_BASE
 
     # Right arm chain: torso → R_shoulder_pitch(q5) → R_shoulder_roll(q6) → R_shoulder_yaw(0) → R_elbow(q7)
     T = T_torso_frame @ _T_TORSO_TO_R_PITCH
@@ -303,6 +349,11 @@ def fk_body_transforms(q, q_legs):
     T = T @ _T_R_YAW_TO_R_ELBOW
     T_r_elbow_frame = _joint_T_y(T, q[7])  # right_elbow → right_elbow_link
     T_r_arm = T_r_elbow_frame @ _OFFSET_R_ARM
+    T = T_r_elbow_frame @ _T_R_ELBOW_TO_WRIST_ROLL
+    # right wrist roll/pitch/yaw are fixed at neutral for CBF geometry.
+    T = T @ _T_R_WRIST_ROLL_TO_PITCH
+    T = T @ _T_R_WRIST_PITCH_TO_YAW
+    T_r_hand = T @ _T_R_WRIST_YAW_TO_HAND_BASE
 
     # Left leg: pelvis → hip_pitch(q_legs[0]) → hip_roll(q_legs[1]) → hip_yaw(q_legs[2])
     T = _T_PELVIS_TO_L_HIP_PITCH
@@ -322,7 +373,10 @@ def fk_body_transforms(q, q_legs):
     T_r_hip_yaw = _joint_T_z(T, q_legs[5])
     T_r_thigh = T_r_hip_yaw @ _OFFSET_R_THIGH
 
-    return (T_torso, T_l_arm, T_r_arm, T_l_shoulder, T_r_shoulder, T_l_thigh, T_r_thigh)
+    return (
+        T_torso, T_l_arm, T_r_arm, T_l_shoulder, T_r_shoulder,
+        T_l_thigh, T_r_thigh, T_l_hand, T_r_hand,
+    )
 
 
 def capsule_endpoints_all(q, q_legs=None):
