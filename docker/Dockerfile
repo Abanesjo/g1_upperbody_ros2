@@ -19,6 +19,7 @@ RUN apt install -y \
     ros-humble-joint-state-publisher-gui \
     ros-humble-pinocchio \
     ros-humble-joy \
+    ros-humble-foxglove-bridge \
     libyaml-cpp-dev \
     libeigen3-dev \
     python3-pip \
