@@ -10,7 +10,7 @@ g1_cbf_node:
     max_lead: 1.5        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
     evaluate_at_actual: true  # true: barriers at actual state, false: barriers at target
-    collision_geometry: "spheres"  # 'capsules' or 'spheres'
+    collision_geometry: "capsules"  # 'capsules' or 'spheres'
     sphere_interpolation_level: 0   # extra spheres between each base pair (spheres mode)
     sphere_radius_gain: 1.0         # radius scaling (spheres mode)
     max_iter: 200     # QP solver max iterations
@@ -32,6 +32,6 @@ g1_cbf_viz_node:
   ros__parameters:
     publish_viz: false
     viz_rate: 100.0
-    collision_geometry: "spheres"
+    collision_geometry: "capsules"
     sphere_interpolation_level: 1
     sphere_radius_gain: 1.0
