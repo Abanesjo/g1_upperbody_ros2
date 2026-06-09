@@ -27,7 +27,7 @@
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
 
   <!-- ==================== g1_cbf ==================== -->
-  <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (fed to RL policy) -->
+  <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (observed by lower-body policy, then PD-commanded) -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="urdf_path" value="$(var urdf_file)"/>
@@ -57,7 +57,7 @@
   </group>
 
   <!-- ==================== g1_rl_deploy ==================== -->
-  <!-- Full-body policy: /cmd_vel + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
+  <!-- Lower-body policy + PD waist/upper body: /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
   </node>

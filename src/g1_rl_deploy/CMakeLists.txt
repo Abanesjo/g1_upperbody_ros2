@@ -6,13 +6,12 @@ set(CMAKE_CXX_STANDARD 17)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 include_directories(${EIGEN3_INCLUDE_DIR})
 
 add_executable(g1_rl_deploy_node src/g1_rl_deploy_node.cpp)
-ament_target_dependencies(g1_rl_deploy_node rclcpp sensor_msgs geometry_msgs)
+ament_target_dependencies(g1_rl_deploy_node rclcpp sensor_msgs)
 target_link_libraries(g1_rl_deploy_node onnxruntime)
 
 install(TARGETS g1_rl_deploy_node DESTINATION lib/${PROJECT_NAME})
