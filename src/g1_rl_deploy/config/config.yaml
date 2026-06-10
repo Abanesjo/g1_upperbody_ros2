@@ -39,6 +39,6 @@ g1_rl_deploy_node:
                          0.2, 0.2, 0.0, 0.6, 0.0, 0.0, 0.0,    # left arm
                          0.2,-0.2, 0.0, 0.6, 0.0, 0.0, 0.0]    # right arm
 
-    # Lower-body action scale only; the policy's last 3 outputs are velocity estimates.
+    # Lower-body action scale only; the policy outputs 12 leg actions.
     action_scale: [0.70, 0.45, 0.30, 0.90, 0.55, 0.25,  # left leg
                    0.70, 0.45, 0.30, 0.90, 0.55, 0.25]  # right leg
