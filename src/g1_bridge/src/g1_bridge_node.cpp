@@ -67,8 +67,8 @@ constexpr std::array<float, G1_NUM_MOTOR> DEFAULT_JOINT_POS = {
     -0.1F, 0.0F, 0.0F, 0.3F, -0.2F, 0.0F,
     -0.1F, 0.0F, 0.0F, 0.3F, -0.2F, 0.0F,
     0.0F, 0.0F, 0.0F,
-    0.35F, 0.18F, 0.0F, 0.87F, 0.0F, 0.0F, 0.0F,
-    0.35F, -0.18F, 0.0F, 0.87F, 0.0F, 0.0F, 0.0F,
+    0.35F, 0.6F, 0.0F, 0.87F, 0.0F, 0.0F, 0.0F,
+    0.35F, -0.6F, 0.0F, 0.87F, 0.0F, 0.0F, 0.0F,
 };
 
 int64_t GetMonotonicNanoseconds() {

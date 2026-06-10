@@ -6,8 +6,8 @@ g1_cbf_node:
     internal_gamma: 4.0        # CBF gain for self-collision
     external_gamma: 4.0        # CBF gain for human-robot collision
     K: 10.0           # proportional speed gain
-    max_velocity: 2.0  # rad/s velocity limit
-    max_lead: 1.5        # max distance (rad) target can lead actual position
+    max_velocity: 1.0  # rad/s velocity limit
+    max_lead: 1.0        # max distance (rad) target can lead actual position
     lpf_gain: 0.0     # low-pass filter on desired position (0 = off)
     evaluate_at_actual: true  # true: barriers at actual state, false: barriers at target
     collision_geometry: "capsules"  # 'capsules' or 'spheres'

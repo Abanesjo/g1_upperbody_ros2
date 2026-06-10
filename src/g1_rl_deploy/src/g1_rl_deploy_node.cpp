@@ -17,12 +17,9 @@
 
 static constexpr int NUM_MOTOR = 29;
 static constexpr int NUM_LOWER_BODY_ACTION = 12;
-static constexpr int NUM_AUX_ACTION = 3;
-static constexpr int NUM_POLICY_ACTION = NUM_LOWER_BODY_ACTION + NUM_AUX_ACTION;
+static constexpr int NUM_POLICY_ACTION = NUM_LOWER_BODY_ACTION;
 static constexpr int NUM_UPPER_BODY_CMD = 17;
-static constexpr int OBS_HISTORY = 6;
-static constexpr int FRAME_OBS_DIM = 105;
-static constexpr int OBS_DIM = OBS_HISTORY * FRAME_OBS_DIM;
+static constexpr int OBS_DIM = 93;
 
 static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
     "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
@@ -42,72 +39,6 @@ static constexpr int UPPER_BODY_INDICES[NUM_UPPER_BODY_CMD] = {
     15, 16, 17, 18, 19, 20, 21,
     22, 23, 24, 25, 26, 27, 28,
 };
-
-static Eigen::Matrix3f RotX(float theta) {
-    const float c = std::cos(theta);
-    const float s = std::sin(theta);
-    Eigen::Matrix3f r;
-    r << 1.0f, 0.0f, 0.0f,
-         0.0f, c, -s,
-         0.0f, s, c;
-    return r;
-}
-
-static Eigen::Matrix3f RotY(float theta) {
-    const float c = std::cos(theta);
-    const float s = std::sin(theta);
-    Eigen::Matrix3f r;
-    r << c, 0.0f, s,
-         0.0f, 1.0f, 0.0f,
-         -s, 0.0f, c;
-    return r;
-}
-
-static Eigen::Matrix3f RotZ(float theta) {
-    const float c = std::cos(theta);
-    const float s = std::sin(theta);
-    Eigen::Matrix3f r;
-    r << c, -s, 0.0f,
-         s, c, 0.0f,
-         0.0f, 0.0f, 1.0f;
-    return r;
-}
-
-static Eigen::Matrix4f Transform(const Eigen::Vector3f& xyz, const Eigen::Matrix3f& rot) {
-    Eigen::Matrix4f t = Eigen::Matrix4f::Identity();
-    t.block<3, 3>(0, 0) = rot;
-    t.block<3, 1>(0, 3) = xyz;
-    return t;
-}
-
-static Eigen::Vector3f FootPositionInPelvis(
-    const std::array<float, NUM_MOTOR>& q, bool left) {
-    const float side = left ? 1.0f : -1.0f;
-    const int offset = left ? 0 : 6;
-
-    Eigen::Matrix4f t = Eigen::Matrix4f::Identity();
-    t = t * Transform(Eigen::Vector3f(0.0f, side * 0.064452f, -0.1027f),
-                      Eigen::Matrix3f::Identity()) *
-        Transform(Eigen::Vector3f::Zero(), RotY(q[offset + 0]));
-    t = t * Transform(Eigen::Vector3f(0.0f, side * 0.052f, -0.030465f),
-                      RotY(-0.1749f)) *
-        Transform(Eigen::Vector3f::Zero(), RotX(q[offset + 1]));
-    t = t * Transform(Eigen::Vector3f(0.025001f, 0.0f, -0.12412f),
-                      Eigen::Matrix3f::Identity()) *
-        Transform(Eigen::Vector3f::Zero(), RotZ(q[offset + 2]));
-    t = t * Transform(Eigen::Vector3f(-0.078273f, side * 0.0021489f, -0.17734f),
-                      RotY(0.1749f)) *
-        Transform(Eigen::Vector3f::Zero(), RotY(q[offset + 3]));
-    t = t * Transform(Eigen::Vector3f(0.0f, -side * 9.4445e-05f, -0.30001f),
-                      Eigen::Matrix3f::Identity()) *
-        Transform(Eigen::Vector3f::Zero(), RotY(q[offset + 4]));
-    t = t * Transform(Eigen::Vector3f(0.0f, 0.0f, -0.017558f),
-                      Eigen::Matrix3f::Identity()) *
-        Transform(Eigen::Vector3f::Zero(), RotX(q[offset + 5]));
-
-    Eigen::Vector4f foot_site(0.04f, 0.0f, -0.035f, 1.0f);
-    return (t * foot_site).head<3>();
-}
 
 class OnnxPolicy {
 public:
@@ -204,8 +135,8 @@ public:
             -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,
             -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,
              0.0,   0.0, 0.0,
-             0.2,   0.2, 0.0, 0.6, 0.0, 0.0, 0.0,
-             0.2,  -0.2, 0.0, 0.6, 0.0, 0.0, 0.0});
+             0.2,   0.6, 0.0, 0.6, 0.0, 0.0, 0.0,
+             0.2,  -0.6, 0.0, 0.6, 0.0, 0.0, 0.0});
         this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>{
             0.70, 0.45, 0.30, 0.90, 0.55, 0.25,
             0.70, 0.45, 0.30, 0.90, 0.55, 0.25});
@@ -230,15 +161,14 @@ public:
         RCLCPP_INFO(this->get_logger(), "Loading lower-body policy: %s", model_path.c_str());
         policy_ = std::make_unique<OnnxPolicy>(model_path);
         if (policy_->input_size() != OBS_DIM) {
-            throw std::runtime_error("policy input dimension is not 630");
+            throw std::runtime_error("policy input dimension is not 93");
         }
         if (policy_->output_size() != NUM_POLICY_ACTION) {
-            throw std::runtime_error("policy output dimension is not 15");
+            throw std::runtime_error("policy output dimension is not 12");
         }
 
         last_lower_body_action_.fill(0.0f);
         smoothed_lower_body_target_.fill(0.0f);
-        estimated_velocity_.fill(0.0f);
         for (int i = 0; i < NUM_LOWER_BODY_ACTION; ++i) {
             smoothed_lower_body_target_[i] = static_cast<float>(default_pos_[i]);
         }
@@ -317,93 +247,39 @@ private:
         upper_body_cmd_[0] = static_cast<float>(default_pos_[12]);
     }
 
-    std::vector<float> BuildObservationFrame() {
-        std::vector<float> frame;
-        frame.reserve(FRAME_OBS_DIM);
+    std::vector<float> BuildObservation() {
+        std::vector<float> obs;
+        obs.reserve(OBS_DIM);
 
         for (int i = 0; i < 3; ++i) {
-            frame.push_back(imu_gyro_[i]);
+            obs.push_back(imu_gyro_[i]);
         }
 
         Eigen::Quaternionf q(imu_quat_[0], imu_quat_[1], imu_quat_[2], imu_quat_[3]);
         q.normalize();
         const Eigen::Vector3f gravity_b = q.conjugate() * Eigen::Vector3f(0.0f, 0.0f, -1.0f);
-        frame.push_back(gravity_b.x());
-        frame.push_back(gravity_b.y());
-        frame.push_back(gravity_b.z());
+        obs.push_back(gravity_b.x());
+        obs.push_back(gravity_b.y());
+        obs.push_back(gravity_b.z());
 
         for (int i = 0; i < NUM_MOTOR; ++i) {
-            frame.push_back(motor_q_[i] - static_cast<float>(default_pos_[i]));
+            obs.push_back(motor_q_[i] - static_cast<float>(default_pos_[i]));
         }
 
         for (int i = 0; i < NUM_MOTOR; ++i) {
-            frame.push_back(motor_dq_[i]);
+            obs.push_back(motor_dq_[i]);
         }
 
         for (const auto action : last_lower_body_action_) {
-            frame.push_back(action);
+            obs.push_back(action);
         }
 
         for (const auto cmd : upper_body_cmd_) {
-            frame.push_back(cmd);
+            obs.push_back(cmd);
         }
 
-        const Eigen::Vector3f left_foot = FootPositionInPelvis(motor_q_, true);
-        const Eigen::Vector3f right_foot = FootPositionInPelvis(motor_q_, false);
-        AppendVector(frame, left_foot);
-        AppendVector(frame, right_foot);
-
-        const auto left_vel = FootVelocityInPelvis(left_foot, true);
-        const auto right_vel = FootVelocityInPelvis(right_foot, false);
-        AppendVector(frame, left_vel);
-        AppendVector(frame, right_vel);
-
-        if (frame.size() != FRAME_OBS_DIM) {
-            throw std::runtime_error("lower-body observation frame dimension mismatch");
-        }
-        return frame;
-    }
-
-    Eigen::Vector3f FootVelocityInPelvis(const Eigen::Vector3f& foot_pos, bool left) const {
-        static constexpr float kDerivativeDt = 1.0e-3f;
-        auto q_next = motor_q_;
-        const int offset = left ? 0 : 6;
-        for (int i = 0; i < 6; ++i) {
-            q_next[offset + i] += motor_dq_[offset + i] * kDerivativeDt;
-        }
-
-        const Eigen::Vector3f foot_next = FootPositionInPelvis(q_next, left);
-        const Eigen::Vector3f joint_vel_b = (foot_next - foot_pos) / kDerivativeDt;
-        const Eigen::Vector3f omega_b(imu_gyro_[0], imu_gyro_[1], imu_gyro_[2]);
-        return joint_vel_b + omega_b.cross(foot_pos);
-    }
-
-    static void AppendVector(std::vector<float>& out, const Eigen::Vector3f& value) {
-        out.push_back(value.x());
-        out.push_back(value.y());
-        out.push_back(value.z());
-    }
-
-    std::vector<float> BuildObservation() {
-        const auto frame = BuildObservationFrame();
-        if (!history_initialized_) {
-            observation_history_.clear();
-            for (int i = 0; i < OBS_HISTORY; ++i) {
-                observation_history_.push_back(frame);
-            }
-            history_initialized_ = true;
-        } else {
-            observation_history_.erase(observation_history_.begin());
-            observation_history_.push_back(frame);
-        }
-
-        std::vector<float> obs;
-        obs.reserve(OBS_DIM);
-        for (const auto& history_frame : observation_history_) {
-            obs.insert(obs.end(), history_frame.begin(), history_frame.end());
-        }
         if (obs.size() != OBS_DIM) {
-            throw std::runtime_error("lower-body observation history dimension mismatch");
+            throw std::runtime_error("lower-body observation dimension mismatch");
         }
         return obs;
     }
@@ -438,7 +314,6 @@ private:
         } else {
             if (!running_policy_) {
                 running_policy_ = true;
-                history_initialized_ = false;
                 RCLCPP_INFO(this->get_logger(), "Phase 2: lower-body policy active");
             }
 
@@ -456,10 +331,6 @@ private:
                         smoothed_lower_body_target_[i];
             }
 
-            for (int i = 0; i < NUM_AUX_ACTION; ++i) {
-                estimated_velocity_[i] = raw_action[NUM_LOWER_BODY_ACTION + i];
-            }
-
             for (int i = 0; i < NUM_MOTOR; ++i) {
                 cmd.position[i] = default_pos_[i];
             }
@@ -475,9 +346,7 @@ private:
             if (++print_counter % 250 == 0) {
                 RCLCPP_INFO(
                     this->get_logger(),
-                    "t=%.1f estimated_vel_b=[%.2f, %.2f, %.2f]",
-                    time_, estimated_velocity_[0], estimated_velocity_[1],
-                    estimated_velocity_[2]);
+                    "t=%.1f lower-body policy running", time_);
             }
         }
 
@@ -502,7 +371,6 @@ private:
     bool running_policy_;
     bool state_received_;
     bool imu_received_;
-    bool history_initialized_ = false;
 
     std::array<float, NUM_MOTOR> motor_q_ = {};
     std::array<float, NUM_MOTOR> motor_dq_ = {};
@@ -510,9 +378,7 @@ private:
     std::array<float, 3> imu_gyro_ = {};
     std::array<float, NUM_LOWER_BODY_ACTION> last_lower_body_action_ = {};
     std::array<float, NUM_LOWER_BODY_ACTION> smoothed_lower_body_target_ = {};
-    std::array<float, NUM_AUX_ACTION> estimated_velocity_ = {};
     std::array<float, NUM_UPPER_BODY_CMD> upper_body_cmd_ = {};
-    std::vector<std::vector<float>> observation_history_;
 };
 
 int main(int argc, char** argv) {

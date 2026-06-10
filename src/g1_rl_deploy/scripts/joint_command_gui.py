@@ -21,12 +21,12 @@ except ImportError:
 JOINTS = {
     "Left Arm": [
         ("left_shoulder_pitch_joint", 15, -2.0, 2.0, 0.35),
-        ("left_shoulder_roll_joint",  16, -1.0, 1.8, 0.18),
+        ("left_shoulder_roll_joint",  16, -1.0, 1.8, 0.6),
         ("left_elbow_joint",          18, -0.8, 1.7, 0.87),
     ],
     "Right Arm": [
         ("right_shoulder_pitch_joint", 22, -2.0, 2.0, 0.35),
-        ("right_shoulder_roll_joint",  23, -1.8, 1.0, -0.18),
+        ("right_shoulder_roll_joint",  23, -1.8, 1.0, -0.6),
         ("right_elbow_joint",          25, -0.8, 1.7, 0.87),
     ],
     "Waist": [
