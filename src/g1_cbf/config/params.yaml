@@ -65,7 +65,7 @@ origin_cmd_vel_publisher_node:
     kd_linear: 0.05
     kp_yaw: 1.0
     kd_yaw: 0.05
-    position_deadzone: 0.5
+    position_deadzone: 0.1
     yaw_deadzone_deg: 15.0
     max_linear_x: 1.0
     max_reverse_x: 0.5

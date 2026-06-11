@@ -36,7 +36,7 @@ class OriginCmdVelPublisherNode(Node):
         self.declare_parameter('kd_linear', 0.05)
         self.declare_parameter('kp_yaw', 1.0)
         self.declare_parameter('kd_yaw', 0.05)
-        self.declare_parameter('position_deadzone', 0.5)
+        self.declare_parameter('position_deadzone', 0.1)
         self.declare_parameter('yaw_deadzone_deg', 15.0)
         self.declare_parameter('max_linear_x', 1.0)
         self.declare_parameter('max_reverse_x', 0.5)
