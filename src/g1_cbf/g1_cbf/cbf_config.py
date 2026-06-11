@@ -333,3 +333,93 @@ class G1CollisionCBFConfig(CBFConfig):
     def _capsule_barrier(r1, a1, b1, r2, a2, b2, margin):
         expanded = 0.5 * margin
         return proximity(r1 + expanded, a1, b1, r2 + expanded, a2, b2)
+
+
+class G1CmdVelCBFConfig(CBFConfig):
+    """CBF config for planar base velocity against the world circle."""
+
+    def __init__(
+        self,
+        external_gamma: float = 5.0,
+        external_margin_phi: float = 0.001,
+        lin_vel_x_limits: list = None,
+        lin_vel_y_limits: list = None,
+        solver_tol: float = 1e-3,
+    ):
+        if external_gamma <= 0.0:
+            raise ValueError('external_gamma must be positive')
+        if external_margin_phi < 0.0:
+            raise ValueError('external_margin_phi must be non-negative')
+
+        lin_vel_x_limits = lin_vel_x_limits or [-0.5, 1.0]
+        lin_vel_y_limits = lin_vel_y_limits or [-0.5, 0.5]
+        if len(lin_vel_x_limits) != 2 or len(lin_vel_y_limits) != 2:
+            raise ValueError('linear velocity limits must have [min, max]')
+        if lin_vel_x_limits[0] > lin_vel_x_limits[1]:
+            raise ValueError('lin_vel_x_limits min must be <= max')
+        if lin_vel_y_limits[0] > lin_vel_y_limits[1]:
+            raise ValueError('lin_vel_y_limits min must be <= max')
+
+        self.external_gamma = external_gamma
+        self.external_margin_phi = external_margin_phi
+        self.alpha_gains = external_gamma * jnp.ones(1)
+
+        dummy_pelvis_quat = jnp.array([0.0, 0.0, 0.0, 1.0])
+        dummy_world_circle_radius = jnp.array(3.0)
+        dummy_head_collider_radius = jnp.array(0.3)
+        dummy_cbf_enabled = jnp.array(True)
+
+        super().__init__(
+            n=2,
+            m=2,
+            u_min=jnp.array([lin_vel_x_limits[0], lin_vel_y_limits[0]]),
+            u_max=jnp.array([lin_vel_x_limits[1], lin_vel_y_limits[1]]),
+            relax_qp=True,
+            cbf_relaxation_penalty=1e4,
+            solver_tol=solver_tol,
+            init_args=(
+                dummy_pelvis_quat,
+                dummy_world_circle_radius,
+                dummy_head_collider_radius,
+                dummy_cbf_enabled,
+            ),
+        )
+
+    def f(self, z, *args, **kwargs):
+        return jnp.zeros(2)
+
+    def g(self, z, pelvis_quat, *args, **kwargs):
+        body_x_world = self._quat_rotate(
+            pelvis_quat,
+            jnp.array([1.0, 0.0, 0.0]),
+        )[:2]
+        body_y_world = self._quat_rotate(
+            pelvis_quat,
+            jnp.array([0.0, 1.0, 0.0]),
+        )[:2]
+        return jnp.stack([body_x_world, body_y_world], axis=1)
+
+    def h_1(self, z, pelvis_quat, world_circle_radius,
+            head_collider_radius, cbf_enabled, **kwargs):
+        del pelvis_quat
+        safe_radius = (
+            world_circle_radius
+            - head_collider_radius
+            - self.external_margin_phi
+        )
+        phi = safe_radius ** 2 - jnp.sum(z ** 2)
+        return jnp.array([jnp.where(cbf_enabled, phi, 1.0)])
+
+    def alpha(self, h, *args, **kwargs):
+        return self.alpha_gains * h
+
+    @staticmethod
+    def _quat_rotate(quat_xyzw, vec):
+        quat_xyzw = quat_xyzw / jnp.maximum(
+            jnp.linalg.norm(quat_xyzw),
+            1e-9,
+        )
+        q_vec = quat_xyzw[:3]
+        q_w = quat_xyzw[3]
+        t = 2.0 * jnp.cross(q_vec, vec)
+        return vec + q_w * t + jnp.cross(q_vec, t)

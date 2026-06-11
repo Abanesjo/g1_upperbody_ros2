@@ -15,6 +15,11 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
+  scripts/cmd_vel_cbf_node.py
+  RENAME cmd_vel_cbf_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
   scripts/g1_cbf_viz_node.py
   RENAME g1_cbf_viz_node
   DESTINATION lib/${PROJECT_NAME}

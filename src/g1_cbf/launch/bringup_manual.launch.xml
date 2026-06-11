@@ -34,6 +34,11 @@
     <remap from="/joint_commands" to="/upper_body_targets"/>
   </node>
 
+  <!-- Filters base velocity commands: /cmd_vel → /cmd_vel_safe (fed to RL policy) -->
+  <node pkg="g1_cbf" exec="cmd_vel_cbf_node" name="cmd_vel_cbf_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+  </node>
+
   <!-- Isolated, rate-limited marker publisher for RViz -->
   <group if="$(var viz)">
     <node pkg="g1_cbf" exec="g1_cbf_viz_node" name="g1_cbf_viz_node" output="screen">
@@ -58,9 +63,10 @@
   </group>
 
   <!-- ==================== g1_rl_deploy ==================== -->
-  <!-- Full-body policy: /cmd_vel + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
+  <!-- Full-body policy: /cmd_vel_safe + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
+    <remap from="/cmd_vel" to="/cmd_vel_safe"/>
   </node>
 
   <!-- ==================== GUI sliders ==================== -->

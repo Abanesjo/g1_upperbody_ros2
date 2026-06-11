@@ -40,6 +40,21 @@ g1_cbf_viz_node:
     sphere_radius_gain: 1.0
     head_collider_radius: 0.3
 
+cmd_vel_cbf_node:
+  ros__parameters:
+    dt: 0.02
+    cmd_vel_cbf_enabled: true
+    external_margin_phi: 0.15
+    external_gamma: 4.0
+    head_collider_radius: 0.1
+    world_circle_radius: 3.0
+    cmd_vel_limits:
+      lin_vel_x: [-0.5, 1.0]
+      lin_vel_y: [-0.5, 0.5]
+    state_timeout_sec: 0.2
+    max_iter: 200
+    solver_tol: 0.001
+
 pelvis_circle_publisher_node:
   ros__parameters:
     world_circle_radius: 3.0
