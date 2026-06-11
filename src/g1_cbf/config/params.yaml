@@ -28,7 +28,7 @@ g1_cbf_node:
     internal_max_active_pairs: 48
     internal_always_keep_nearest: 12
     head_circle_cbf_enabled: true
-    head_collider_radius: 0.15
+    head_collider_radius: 0.1
     world_circle_radius: 3.0
 
 g1_cbf_viz_node:
