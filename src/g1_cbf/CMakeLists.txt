@@ -20,6 +20,11 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
+  scripts/origin_cmd_vel_publisher_node.py
+  RENAME origin_cmd_vel_publisher_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
   scripts/g1_cbf_viz_node.py
   RENAME g1_cbf_viz_node
   DESTINATION lib/${PROJECT_NAME}

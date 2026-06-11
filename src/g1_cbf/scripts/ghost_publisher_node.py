@@ -25,8 +25,16 @@ class GhostPublisherNode(Node):
     def __init__(self):
         super().__init__('ghost_publisher_node')
 
-        self.declare_parameter('offset_y', -1.0)
-        offset_y = self.get_parameter('offset_y').value
+        self.declare_parameter('parent_frame', 'world')
+        self.declare_parameter('child_frame', 'ghost/pelvis')
+        self.declare_parameter('x', 0.0)
+        self.declare_parameter('y', 0.0)
+        self.declare_parameter('z', 0.78)
+        parent_frame = self.get_parameter('parent_frame').value
+        child_frame = self.get_parameter('child_frame').value
+        x = float(self.get_parameter('x').value)
+        y = float(self.get_parameter('y').value)
+        z = float(self.get_parameter('z').value)
 
         self._latest_joint_states = {}  # name -> position (from feedback)
 
@@ -44,20 +52,21 @@ class GhostPublisherNode(Node):
             self._joint_states_cb, SENSOR_QOS,
         )
 
-        # Static TF: pelvis -> ghost/pelvis
+        # Static TF anchoring the ghost robot in the world frame.
         self.tf_broadcaster = StaticTransformBroadcaster(self)
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'pelvis'
-        t.child_frame_id = 'ghost/pelvis'
-        t.transform.translation.x = 0.0
-        t.transform.translation.y = float(offset_y)
-        t.transform.translation.z = 0.0
+        t.header.frame_id = parent_frame
+        t.child_frame_id = child_frame
+        t.transform.translation.x = x
+        t.transform.translation.y = y
+        t.transform.translation.z = z
         t.transform.rotation.w = 1.0
         self.tf_broadcaster.sendTransform(t)
 
         self.get_logger().info(
-            f'Ghost publisher ready (offset_y={offset_y})'
+            'Ghost publisher ready '
+            f'({parent_frame} -> {child_frame}, xyz=[{x:.3f}, {y:.3f}, {z:.3f}])'
         )
 
     def _joint_states_cb(self, msg: JointState):

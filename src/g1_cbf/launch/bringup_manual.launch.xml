@@ -53,6 +53,11 @@
 
   <group if="$(var ghost)">
     <node pkg="g1_cbf" exec="ghost_publisher_node" name="ghost_publisher_node" output="screen">
+      <param name="parent_frame" value="world"/>
+      <param name="child_frame" value="ghost/pelvis"/>
+      <param name="x" value="0.0"/>
+      <param name="y" value="0.0"/>
+      <param name="z" value="0.78"/>
       <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
     </node>
     <node pkg="robot_state_publisher" exec="robot_state_publisher" name="ghost_robot_state_publisher" output="screen">
