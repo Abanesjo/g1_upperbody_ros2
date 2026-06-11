@@ -38,7 +38,7 @@ g1_cbf_viz_node:
     collision_geometry: "capsules"
     sphere_interpolation_level: 1
     sphere_radius_gain: 1.0
-    head_collider_radius: 0.3
+    head_collider_radius: 0.15
 
 cmd_vel_cbf_node:
   ros__parameters:
@@ -46,7 +46,7 @@ cmd_vel_cbf_node:
     cmd_vel_cbf_enabled: true
     external_margin_phi: 0.15
     external_gamma: 4.0
-    head_collider_radius: 0.1
+    head_collider_radius: 0.15
     world_circle_radius: 3.0
     cmd_vel_limits:
       lin_vel_x: [-0.5, 1.0]
