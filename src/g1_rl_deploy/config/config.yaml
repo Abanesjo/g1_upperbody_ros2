@@ -19,8 +19,10 @@
 # 20  left_wrist_pitch         27  right_wrist_pitch
 # 21  left_wrist_yaw           28  right_wrist_yaw
 #
-# All 29 joints controlled by RL policy via /joint_commands
-# U = upper body (8) — CBF-filtered targets fed as observation to policy
+# The policy still outputs 29 actions, but g1_rl_deploy_node overrides
+# waist_roll/waist_pitch and the U-marked arm joints with CBF-filtered PD
+# targets from /upper_body_targets. waist_yaw is held at its default PD target.
+# U = upper body (8) — CBF-filtered targets fed as observation and commands
 
 g1_rl_deploy_node:
   ros__parameters:
@@ -44,7 +46,8 @@ g1_rl_deploy_node:
                          0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0, # left arm
                          0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0] # right arm
 
-    # Per-joint action scale — all 29 joints (0.25 * effort_limit / stiffness)
+    # Per-joint action scale for the 29-output policy. Waist targets are
+    # overridden in the deploy node before publishing /joint_commands.
     action_scale: [0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # left leg
                    0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # right leg
                    0.5475, 0.4386, 0.4386,                             # waist

@@ -67,7 +67,9 @@
   </group>
 
   <!-- ==================== g1_rl_deploy ==================== -->
-  <!-- Full-body policy: /cmd_vel_safe + /upper_body_targets + /joint_states + /imu → /joint_commands (29 joints) -->
+  <!-- Policy deploy: /cmd_vel_safe + /upper_body_targets + /joint_states + /imu → /joint_commands.
+       Waist roll/pitch and selected arm joints are PD targets from /upper_body_targets;
+       waist yaw is held at its configured default. -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
     <remap from="/cmd_vel" to="/cmd_vel_safe"/>

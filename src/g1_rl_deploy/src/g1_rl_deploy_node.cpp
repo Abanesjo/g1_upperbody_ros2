@@ -13,9 +13,10 @@
 #include "geometry_msgs/msg/twist.hpp"
 
 static constexpr int NUM_MOTOR = 29;
-static constexpr int NUM_ACTION = 29;  // all joints (policy controls full body)
+static constexpr int NUM_ACTION = 29;  // policy model output dimension
 static constexpr int NUM_UPPER_BODY_CMD = 8;  // upper body command targets
 static constexpr int OBS_DIM = 106;  // 3+3+3+2+29+29+29+8
+static constexpr int WAIST_YAW_INDEX = 12;
 
 // All 29 joint names in motor index order
 static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
@@ -239,7 +240,7 @@ private:
         } else {
             if (!running_policy_) {
                 running_policy_ = true;
-                RCLCPP_INFO(this->get_logger(), "Phase 2: Full-body policy active");
+                RCLCPP_INFO(this->get_logger(), "Phase 2: policy active; waist joints use PD targets");
             }
 
             // Build observation (106 dims)
@@ -280,19 +281,24 @@ private:
             for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
                 obs.push_back(upper_body_cmd_[i]);
 
-            // Infer — outputs 29 actions for all joints
+            // Infer — outputs 29 actions. Some joints are overridden below.
             auto raw_action = policy_->infer(obs);
             last_action_ = raw_action;
 
-            // Publish all 29 joints
+            // Publish all 29 joints. Start from policy targets for joints that
+            // remain under RL authority.
             cmd.name.assign(JOINT_NAMES.begin(), JOINT_NAMES.end());
             cmd.position.resize(NUM_MOTOR);
             for (int i = 0; i < NUM_MOTOR; ++i)
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
-            // Override 6 arm joints with CBF-filtered targets directly
-            // Skip waist_roll (i=0) and waist_pitch (i=1) — policy controls those
-            for (int i = 2; i < NUM_UPPER_BODY_CMD; ++i)
+            // Waist authority is through PD position targets, not policy actions.
+            // Yaw has no upper-body target stream, so hold its configured default.
+            cmd.position[WAIST_YAW_INDEX] = default_pos_[WAIST_YAW_INDEX];
+
+            // Override all CBF-filtered upper-body targets directly, including
+            // waist_roll and waist_pitch.
+            for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
                 cmd.position[UPPER_BODY_INDICES[i]] = upper_body_cmd_[i];
 
             static int print_counter = 0;
