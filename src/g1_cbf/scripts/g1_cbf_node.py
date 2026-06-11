@@ -15,6 +15,7 @@ import qpax
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 
 from cbfpy import CBF
@@ -69,6 +70,9 @@ class G1CBFNode(Node):
         self.declare_parameter('internal_activation_distance', 0.20)
         self.declare_parameter('internal_max_active_pairs', 48)
         self.declare_parameter('internal_always_keep_nearest', 12)
+        self.declare_parameter('head_circle_cbf_enabled', True)
+        self.declare_parameter('head_collider_radius', 0.3)
+        self.declare_parameter('world_circle_radius', 3.0)
 
         dt = self.get_parameter('dt').value
         internal_gamma = float(self.get_parameter('internal_gamma').value)
@@ -80,11 +84,21 @@ class G1CBFNode(Node):
             self.get_parameter('external_margin_phi').value
         )
         max_velocity = self.get_parameter('max_velocity').value
+        head_collider_radius = float(
+            self.get_parameter('head_collider_radius').value
+        )
+        world_circle_radius = float(
+            self.get_parameter('world_circle_radius').value
+        )
         geom = str(self.get_parameter('collision_geometry').value).lower()
         if geom not in ('capsules', 'spheres'):
             raise ValueError(
                 "collision_geometry must be 'capsules' or 'spheres'"
             )
+        if head_collider_radius <= 0.0:
+            raise ValueError('head_collider_radius must be positive')
+        if world_circle_radius <= 0.0:
+            raise ValueError('world_circle_radius must be positive')
 
         self.get_logger().info(
             f'CBF params: dt={dt}, '
@@ -92,6 +106,8 @@ class G1CBFNode(Node):
             f'external_gamma={external_gamma}, '
             f'internal_margin_phi={internal_margin_phi}, '
             f'external_margin_phi={external_margin_phi}, '
+            f'head_circle_radius={world_circle_radius}, '
+            f'head_collider_radius={head_collider_radius}, '
             f'max_vel={max_velocity}, geometry={geom}'
         )
         if self.get_parameter('publish_viz').value:
@@ -205,10 +221,16 @@ class G1CBFNode(Node):
         _pair_mask = jnp.zeros(self._external_pair_slots, dtype=bool)
         _internal_pairs = jnp.zeros((self._internal_pair_slots, 4), dtype=jnp.int32)
         _internal_mask = jnp.zeros(self._internal_pair_slots, dtype=bool)
+        _pelvis_pos = jnp.zeros(3)
+        _pelvis_quat = jnp.array([0.0, 0.0, 0.0, 1.0])
+        _circle_radius = jnp.array(world_circle_radius, dtype=jnp.float64)
+        _head_radius = jnp.array(head_collider_radius, dtype=jnp.float64)
+        _head_circle_enabled = jnp.array(False)
         t0 = _time.monotonic()
         _ = self.cbf.safety_filter(
             _z, _u, _ql, _hc, _pairs, _pair_mask,
-            _internal_pairs, _internal_mask,
+            _internal_pairs, _internal_mask, _pelvis_pos, _pelvis_quat,
+            _circle_radius, _head_radius, _head_circle_enabled,
         )
         jit_time = _time.monotonic() - t0
         self.get_logger().info(
@@ -225,6 +247,8 @@ class G1CBFNode(Node):
         self.q_des_filtered = None
         self.q_cbf_target = None
         self._human_capsules = []
+        self._pelvis_position = None
+        self._pelvis_quat = None
 
         # Passthrough state for non-controlled joints
         self._passthrough_names = []
@@ -251,6 +275,10 @@ class G1CBFNode(Node):
         self.create_subscription(
             CapsuleArray, '/human/colliders',
             self._human_cb, sensor_qos,
+        )
+        self.create_subscription(
+            PoseStamped, '/pose/pelvis',
+            self._pelvis_pose_cb, sensor_qos,
         )
 
         # Publisher
@@ -321,6 +349,19 @@ class G1CBFNode(Node):
             })
         self._human_capsules = capsules
 
+    def _pelvis_pose_cb(self, msg: PoseStamped):
+        self._pelvis_position = np.array([
+            msg.pose.position.x,
+            msg.pose.position.y,
+            msg.pose.position.z,
+        ], dtype=np.float64)
+        self._pelvis_quat = np.array([
+            msg.pose.orientation.x,
+            msg.pose.orientation.y,
+            msg.pose.orientation.z,
+            msg.pose.orientation.w,
+        ], dtype=np.float64)
+
     # ------------------------------------------------------------------
     # Main control loop
     # ------------------------------------------------------------------
@@ -369,11 +410,20 @@ class G1CBFNode(Node):
         internal_indices_jnp, internal_mask_jnp, internal_clearances_jnp = (
             self._select_active_internal_pairs(z, q_legs_jnp)
         )
+        (
+            pelvis_position_jnp,
+            pelvis_quat_jnp,
+            world_circle_radius_jnp,
+            head_collider_radius_jnp,
+            head_circle_enabled_jnp,
+        ) = self._head_circle_args()
 
         # Single CBF call — FK + proximity + QP all on GPU
         dq_safe_jnp = self.cbf.safety_filter(
             z, u_des, q_legs_jnp, human_caps, pair_indices_jnp, pair_mask_jnp,
-            internal_indices_jnp, internal_mask_jnp,
+            internal_indices_jnp, internal_mask_jnp, pelvis_position_jnp,
+            pelvis_quat_jnp, world_circle_radius_jnp,
+            head_collider_radius_jnp, head_circle_enabled_jnp,
         )
         dq_safe = np.asarray(dq_safe_jnp)
 
@@ -479,6 +529,41 @@ class G1CBFNode(Node):
                 self.get_parameter('internal_filter_enabled').value,
                 dtype=bool,
             ),
+        )
+
+    def _head_circle_args(self):
+        configured_enabled = bool(
+            self.get_parameter('head_circle_cbf_enabled').value
+        )
+        enabled = configured_enabled and self._pelvis_position is not None
+        if configured_enabled and self._pelvis_position is None:
+            self.get_logger().warn(
+                'head_circle_cbf_enabled is true, but /pose/pelvis has not '
+                'been received; head-circle CBF is disabled for this tick',
+                throttle_duration_sec=2.0,
+            )
+        pelvis_position = (
+            self._pelvis_position
+            if self._pelvis_position is not None
+            else np.zeros(3, dtype=np.float64)
+        )
+        pelvis_quat = (
+            self._pelvis_quat
+            if self._pelvis_quat is not None
+            else np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        )
+        return (
+            jnp.array(pelvis_position, dtype=jnp.float64),
+            jnp.array(pelvis_quat, dtype=jnp.float64),
+            jnp.array(
+                self.get_parameter('world_circle_radius').value,
+                dtype=jnp.float64,
+            ),
+            jnp.array(
+                self.get_parameter('head_collider_radius').value,
+                dtype=jnp.float64,
+            ),
+            jnp.array(enabled, dtype=bool),
         )
 
     def _publish_active_pairs(self, stamp, pair_indices, pair_mask, clearances,

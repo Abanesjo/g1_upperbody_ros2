@@ -15,6 +15,7 @@
   <depend>std_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>g1_cbf_msg</depend>
 
   <exec_depend>g1_description</exec_depend>

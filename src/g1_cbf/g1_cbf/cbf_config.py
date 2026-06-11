@@ -24,6 +24,7 @@ from g1_cbf.jax_kinematics import (
     N_BODIES,
     N_HUMAN_CAPSULES,
     N_LEG_JOINTS,
+    HEAD_COLLIDER_BODY_INDEX,
     RADII,
 )
 
@@ -99,10 +100,12 @@ class G1CollisionCBFConfig(CBFConfig):
         else:
             self.num_internal_barriers = N_SELF_PAIRS
             self.num_external_barriers = self.external_pair_slots
+        self.num_head_circle_barriers = 1
 
         self.alpha_gains = jnp.concatenate([
             internal_gamma * jnp.ones(self.num_internal_barriers),
             external_gamma * jnp.ones(self.num_external_barriers),
+            external_gamma * jnp.ones(self.num_head_circle_barriers),
         ])
 
         # Dummy args for cbfpy validation
@@ -112,6 +115,11 @@ class G1CollisionCBFConfig(CBFConfig):
         dummy_pair_mask = jnp.zeros(self.external_pair_slots, dtype=bool)
         dummy_internal_indices = jnp.zeros((self.internal_pair_slots, 4), dtype=jnp.int32)
         dummy_internal_mask = jnp.zeros(self.internal_pair_slots, dtype=bool)
+        dummy_pelvis_position = jnp.zeros(3)
+        dummy_pelvis_quat = jnp.array([0.0, 0.0, 0.0, 1.0])
+        dummy_world_circle_radius = jnp.array(3.0)
+        dummy_head_collider_radius = jnp.array(0.3)
+        dummy_head_circle_enabled = jnp.array(False)
 
         super().__init__(
             n=8,
@@ -128,6 +136,11 @@ class G1CollisionCBFConfig(CBFConfig):
                 dummy_pair_mask,
                 dummy_internal_indices,
                 dummy_internal_mask,
+                dummy_pelvis_position,
+                dummy_pelvis_quat,
+                dummy_world_circle_radius,
+                dummy_head_collider_radius,
+                dummy_head_circle_enabled,
             ),
         )
 
@@ -139,16 +152,22 @@ class G1CollisionCBFConfig(CBFConfig):
 
     def h_1(self, z, q_legs, human_capsules, active_pair_indices,
             active_pair_mask, active_internal_indices, active_internal_mask,
+            pelvis_position, pelvis_quat, world_circle_radius,
+            head_collider_radius, head_circle_enabled,
             **kwargs):
         if self.geom == 'spheres':
             return self._h1_spheres(
                 z, q_legs, human_capsules, active_pair_indices,
                 active_pair_mask, active_internal_indices, active_internal_mask,
+                pelvis_position, pelvis_quat, world_circle_radius,
+                head_collider_radius, head_circle_enabled,
             )
         else:
             return self._h1_capsules(
                 z, q_legs, human_capsules, active_pair_indices,
-                active_pair_mask,
+                active_pair_mask, pelvis_position, pelvis_quat,
+                world_circle_radius, head_collider_radius,
+                head_circle_enabled,
             )
 
     def alpha(self, h, *args, **kwargs):
@@ -159,7 +178,9 @@ class G1CollisionCBFConfig(CBFConfig):
     # ------------------------------------------------------------------
 
     def _h1_capsules(self, z, q_legs, human_capsules, active_pair_indices,
-                     active_pair_mask):
+                     active_pair_mask, pelvis_position, pelvis_quat,
+                     world_circle_radius, head_collider_radius,
+                     head_circle_enabled):
         a_robot, b_robot = capsule_endpoints_all(z, q_legs)
         barriers = []
 
@@ -187,6 +208,15 @@ class G1CollisionCBFConfig(CBFConfig):
                 active_pair_mask[slot], phi, 1.0,
             ))
 
+        barriers.append(self._head_circle_barrier(
+            a_robot[HEAD_COLLIDER_BODY_INDEX],
+            pelvis_position,
+            pelvis_quat,
+            world_circle_radius,
+            head_collider_radius,
+            head_circle_enabled,
+        ))
+
         return jnp.array(barriers)
 
     # ------------------------------------------------------------------
@@ -195,7 +225,9 @@ class G1CollisionCBFConfig(CBFConfig):
 
     def _h1_spheres(self, z, q_legs, human_capsules, active_pair_indices,
                     active_pair_mask, active_internal_indices,
-                    active_internal_mask):
+                    active_internal_mask, pelvis_position, pelvis_quat,
+                    world_circle_radius, head_collider_radius,
+                    head_circle_enabled):
         a_robot, b_robot = capsule_endpoints_all(z, q_legs)
         rg = self.radius_gain
         barriers = []
@@ -248,7 +280,43 @@ class G1CollisionCBFConfig(CBFConfig):
                         1.0,
                     ))
 
+        barriers.append(self._head_circle_barrier(
+            a_robot[HEAD_COLLIDER_BODY_INDEX],
+            pelvis_position,
+            pelvis_quat,
+            world_circle_radius,
+            head_collider_radius,
+            head_circle_enabled,
+        ))
+
         return jnp.array(barriers)
+
+    def _head_circle_barrier(self, head_center_pelvis, pelvis_position,
+                             pelvis_quat, world_circle_radius,
+                             head_collider_radius, head_circle_enabled):
+        head_center_world = (
+            pelvis_position
+            + self._quat_rotate(pelvis_quat, head_center_pelvis)
+        )
+        safe_radius = (
+            world_circle_radius
+            - head_collider_radius
+            - self.external_margin_phi
+        )
+        horizontal_dist_sq = jnp.sum(head_center_world[:2] ** 2)
+        phi = safe_radius ** 2 - horizontal_dist_sq
+        return jnp.where(head_circle_enabled, phi, 1.0)
+
+    @staticmethod
+    def _quat_rotate(quat_xyzw, vec):
+        quat_xyzw = quat_xyzw / jnp.maximum(
+            jnp.linalg.norm(quat_xyzw),
+            1e-9,
+        )
+        q_vec = quat_xyzw[:3]
+        q_w = quat_xyzw[3]
+        t = 2.0 * jnp.cross(q_vec, vec)
+        return vec + q_w * t + jnp.cross(q_vec, t)
 
     @staticmethod
     def _padded_sphere_centers(a_all, b_all, counts, max_count):

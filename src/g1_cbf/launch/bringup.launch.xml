@@ -27,6 +27,8 @@
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
 
   <!-- ==================== g1_cbf ==================== -->
+  <node pkg="g1_cbf" exec="pelvis_tf_publisher_node" name="pelvis_tf_publisher_node" output="screen"/>
+
   <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (fed to RL policy) -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
@@ -41,6 +43,9 @@
       <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
       <param name="publish_viz" value="true"/>
       <param name="viz_rate" value="$(var viz_rate)"/>
+    </node>
+    <node pkg="g1_cbf" exec="pelvis_circle_publisher_node" name="pelvis_circle_publisher_node" output="screen">
+      <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     </node>
   </group>
 

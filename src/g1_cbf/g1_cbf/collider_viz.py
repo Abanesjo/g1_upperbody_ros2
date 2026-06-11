@@ -9,7 +9,7 @@ from std_msgs.msg import ColorRGBA
 
 from g1_cbf.jax_kinematics import (
     capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII, N_BODIES,
-    COLLISION_PAIR_INDICES, compute_sphere_counts,
+    COLLISION_PAIR_INDICES, HEAD_COLLIDER_BODY_INDEX, compute_sphere_counts,
 )
 
 _COLORS = {
@@ -23,6 +23,7 @@ _COLORS = {
     'left_hand': (0.55, 0.0, 0.9, 0.45),
     'right_hand': (0.55, 0.0, 0.9, 0.45),
 }
+_HEAD_COLLIDER_COLOR = (1.0, 1.0, 0.0, 0.45)
 
 
 def _closest_points_segments(a1, b1, a2, b2):
@@ -94,7 +95,8 @@ class ColliderVisualizer:
     """Publishes MarkerArray for collision geometry."""
 
     def __init__(self, node, geometry_type='capsules',
-                 sphere_interpolation_level=0, sphere_radius_gain=1.0):
+                 sphere_interpolation_level=0, sphere_radius_gain=1.0,
+                 head_collider_radius=0.3):
         self.geometry_type = str(geometry_type).lower()
         if self.geometry_type not in ('capsules', 'spheres'):
             raise ValueError(
@@ -102,6 +104,7 @@ class ColliderVisualizer:
             )
         self.sphere_interp = sphere_interpolation_level
         self.sphere_rg = sphere_radius_gain
+        self.head_collider_radius = float(head_collider_radius)
         self.sphere_counts = compute_sphere_counts(sphere_interpolation_level)
         self.pub = node.create_publisher(
             MarkerArray, '/robot_colliders', 10,
@@ -154,6 +157,7 @@ class ColliderVisualizer:
                 ))
                 mid += 1
 
+        mid = self._append_head_collider(stamp, msg, mid, a_all)
         self._cleanup(stamp, msg, mid)
         return msg
 
@@ -184,8 +188,18 @@ class ColliderVisualizer:
                 ))
                 mid += 1
 
+        mid = self._append_head_collider(stamp, msg, mid, a_all)
         self._cleanup(stamp, msg, mid)
         return msg
+
+    def _append_head_collider(self, stamp, msg, mid, a_all):
+        center = a_all[HEAD_COLLIDER_BODY_INDEX]
+        diam = 2.0 * self.head_collider_radius
+        msg.markers.append(self._make_marker(
+            stamp, mid, Marker.SPHERE, center, [0.0, 0.0, 0.0, 1.0],
+            diam, diam, diam, _HEAD_COLLIDER_COLOR,
+        ))
+        return mid + 1
 
     def _cleanup(self, stamp, msg, mid):
         prev = getattr(self, '_prev_n_markers', 0)

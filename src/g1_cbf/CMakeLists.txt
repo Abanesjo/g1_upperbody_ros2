@@ -20,6 +20,16 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
+  scripts/pelvis_circle_publisher_node.py
+  RENAME pelvis_circle_publisher_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
+  scripts/pelvis_tf_publisher_node.py
+  RENAME pelvis_tf_publisher_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
   scripts/ghost_publisher_node.py
   RENAME ghost_publisher_node
   DESTINATION lib/${PROJECT_NAME}

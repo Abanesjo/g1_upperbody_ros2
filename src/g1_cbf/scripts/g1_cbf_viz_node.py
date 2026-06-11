@@ -36,6 +36,7 @@ class G1CBFVizNode(Node):
         self.declare_parameter('collision_geometry', 'capsules')
         self.declare_parameter('sphere_interpolation_level', 0)
         self.declare_parameter('sphere_radius_gain', 1.0)
+        self.declare_parameter('head_collider_radius', 0.3)
 
         self.q_ctrl = None
         self.q_legs = np.zeros(len(LEG_JOINTS))
@@ -50,6 +51,9 @@ class G1CBFVizNode(Node):
                 self.get_parameter('sphere_interpolation_level').value
             ),
             sphere_radius_gain=self.get_parameter('sphere_radius_gain').value,
+            head_collider_radius=(
+                self.get_parameter('head_collider_radius').value
+            ),
         )
 
         self.create_subscription(

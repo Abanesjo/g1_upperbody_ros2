@@ -238,6 +238,7 @@ BODY_NAMES = [
 ]
 N_BODIES = len(BODY_NAMES)
 BODY_INDEX = {name: i for i, name in enumerate(BODY_NAMES)}
+HEAD_COLLIDER_BODY_INDEX = BODY_INDEX['torso']
 
 # (half_length, radius) per body
 HALF_LENGTHS = jnp.array([
@@ -430,6 +431,23 @@ def capsule_endpoints_np(q_np, q_legs_np=None):
     ql_j = jnp.array(q_legs_np, dtype=jnp.float64) if q_legs_np is not None else None
     a, b = capsule_endpoints_all(q_j, ql_j)
     return np.asarray(a), np.asarray(b), np.asarray(RADII)
+
+
+def head_sphere_center(q, q_legs=None):
+    """Return the head collider center in the pelvis frame."""
+    a_all, _ = capsule_endpoints_all(q, q_legs)
+    return a_all[HEAD_COLLIDER_BODY_INDEX]
+
+
+def head_sphere_center_np(q_np, q_legs_np=None):
+    """Numpy wrapper for the head collider center."""
+    return np.asarray(head_sphere_center(
+        jnp.array(q_np, dtype=jnp.float64),
+        (
+            jnp.array(q_legs_np, dtype=jnp.float64)
+            if q_legs_np is not None else None
+        ),
+    ))
 
 
 # ---------------------------------------------------------------------------
