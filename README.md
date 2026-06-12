@@ -3,15 +3,24 @@ Low level control for a Unitree G1 robot implementing safe human imitation with 
 
 ## Prerequisites
 
+### Docker and NVIDIA Container Toolkit 
+
 The package works on both x86 and ARM systems but require an NVIDIA GPU. Docker is used to streamline the installation process. If not already, please install docker and NVIDIA's docker container toolkit on your system. Thus, the following are required; 
 
 1. [Docker](https://docs.docker.com/engine/install/)
 2. [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 
-## Simulator
+### Simulator
 This is designed to work with the unitree mujoco simulator. Please use the fork from the following repository and follow the setup instructions.
 
 [https://github.com/Abanesjo/unitree_mujoco](https://github.com/Abanesjo/unitree_mujoco)
+
+### Remote Controller
+For safety especially when integrating with the real robot, the project is designed to work with a controller. This project is specifically calibrated for the Logitech F710 gamepad.
+
+<p align="center">
+    <img src="docs/logitech.png" width="300"/>
+</p>
 
 ## Usage
 
@@ -23,7 +32,11 @@ cd docker
 docker compose up --build
 ```
 
-Also grant access to your display for docker applications
+Before proceeding, it's advised to wait until the container finishes compiling the ros packages, which is when you see the message
+
+ **"g1_upperbody_ros2  | Summary: 10 packages finished [27.7s]"**
+
+If not already, grant access to your display for docker applications
 
 ```
 xhost +local:root
@@ -59,4 +72,33 @@ You will see a window below
 
 ![image](docs/rviz.png)
 
+You can start the RL + CBF with the remote controller. See the [controller](#controls) section for usage instructions.
 
+### Manual Motion
+
+You can also send manual joint commands with the gui, as well as base velocities instead.
+
+In one terminal within the container: 
+```
+ros2 launch g1_cbf bringup_manual.launch.xml rviz:=true simulator:=true
+```
+You will get an additional GUI as shown below. 
+
+![manual_control](docs/manual_control.png)
+
+### Controller
+
+For safety, the project utilizes a joystick for emergency kill switching and toggling between a default stand pose and the policy. The commands are as follows: 
+
+```
+LB: Kill Switch (toggles full damping mode)
+RB: Toggles between default stand position and RL + Policy
+```
+
+### Stopping the container
+You can stop the running container via
+```
+cd docker
+docker compose down
+```
+from a host shell.
