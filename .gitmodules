@@ -16,3 +16,6 @@
 [submodule "dependencies/dfx_inspire_service"]
 	path = dependencies/dfx_inspire_service
 	url = https://github.com/Abanesjo/dfx_inspire_service
+[submodule "dependencies/Livox-SDK2"]
+	path = dependencies/Livox-SDK2
+	url = https://github.com/Livox-SDK/Livox-SDK2

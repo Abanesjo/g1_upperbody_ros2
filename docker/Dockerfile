@@ -67,10 +67,13 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     ln -sf libonnxruntime.so.1 /usr/local/lib/libonnxruntime.so && \
     ldconfig
 
-RUN mkdir -p /workspace/ros2_ws/src
-
 # ENV CMAKE_PREFIX_PATH=/opt/unitree_robotics:/opt/cyclonedds
 # ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib:/opt/onnxruntime/lib
+
+WORKDIR /workspace/dependencies/Livox-SDK2
+RUN mkdir build && cd build && cmake .. && cmake --build . && make install
+
+RUN mkdir -p /workspace/ros2_ws/src
 
 # Workspace setup
 WORKDIR /workspace/ros2_ws
