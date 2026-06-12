@@ -8,6 +8,10 @@ The package works on both x86 and ARM systems but require an NVIDIA GPU. Docker 
 1. [Docker](https://docs.docker.com/engine/install/)
 2. [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 
+## Simulator
+This is designed to work with the unitree mujoco simulator. Please use the fork from the following repository and follow the setup instructions.
+
+[https://github.com/Abanesjo/unitree_mujoco](https://github.com/Abanesjo/unitree_mujoco)
 
 ## Usage
 
@@ -17,6 +21,12 @@ Install and build the docker container using the following command.
 git clone --recursive https://github.com/Abanesjo/g1_upperbody_ros2
 cd docker
 docker compose up --build
+```
+
+Also grant access to your display for docker applications
+
+```
+xhost +local:root
 ```
 
 Next, enter the docker container
