@@ -19,3 +19,6 @@
 [submodule "dependencies/Livox-SDK2"]
 	path = dependencies/Livox-SDK2
 	url = https://github.com/Livox-SDK/Livox-SDK2
+[submodule "src/livox_ros2"]
+	path = src/livox_ros2
+	url = https://github.com/Abanesjo/livox_ros2
