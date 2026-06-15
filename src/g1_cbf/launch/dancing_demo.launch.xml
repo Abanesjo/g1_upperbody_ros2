@@ -1,0 +1,93 @@
+<launch>
+  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
+  <arg name="rviz" default="false"/>
+  <arg name="ghost" default="true"/>
+  <arg name="bridge" default="true"/>
+  <arg name="simulator" default="false"/>
+  <arg name="viz" default="true"/>
+  <arg name="viz_rate" default="100.0"/>
+
+  <!-- ==================== g1_bridge ==================== -->
+  <!-- /lowstate → /joint_states + /imu (feedback) -->
+  <!-- /joint_commands → /lowcmd (500 Hz republish, per-joint kp/kd, CRC) -->
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
+  </node>
+
+  <group if="$(var bridge)">
+    <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
+      <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+      <param name="simulator" value="$(var simulator)"/>
+    </node>
+  </group>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" if="$(var rviz)"
+        args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
+
+  <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
+
+  <!-- ==================== g1_cbf ==================== -->
+  <node pkg="g1_cbf" exec="pelvis_tf_publisher_node" name="pelvis_tf_publisher_node" output="screen"/>
+
+  <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (fed to RL policy) -->
+  <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="urdf_path" value="$(var urdf_file)"/>
+    <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
+    <remap from="/joint_commands" to="/upper_body_targets"/>
+  </node>
+
+  <!-- Drives /cmd_vel toward world origin; cmd_vel_cbf_node filters before policy use. -->
+  <node pkg="g1_cbf" exec="origin_cmd_vel_publisher_node" name="origin_cmd_vel_publisher_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+  </node>
+
+  <!-- Filters base velocity commands: /cmd_vel → /cmd_vel_safe (fed to RL policy) -->
+  <node pkg="g1_cbf" exec="cmd_vel_cbf_node" name="cmd_vel_cbf_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+  </node>
+
+  <!-- Isolated, rate-limited marker publisher for RViz -->
+  <group if="$(var viz)">
+    <node pkg="g1_cbf" exec="g1_cbf_viz_node" name="g1_cbf_viz_node" output="screen">
+      <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+      <param name="publish_viz" value="true"/>
+      <param name="viz_rate" value="$(var viz_rate)"/>
+    </node>
+    <node pkg="g1_cbf" exec="pelvis_circle_publisher_node" name="pelvis_circle_publisher_node" output="screen">
+      <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    </node>
+  </group>
+
+  <!-- Ghost robot visualization (shows unfiltered upper body commands) -->
+  <group if="$(var ghost)">
+    <node pkg="g1_cbf" exec="ghost_publisher_node" name="ghost_publisher_node" output="screen">
+      <param name="parent_frame" value="world"/>
+      <param name="child_frame" value="ghost/pelvis"/>
+      <param name="x" value="0.0"/>
+      <param name="y" value="0.0"/>
+      <param name="z" value="0.78"/>
+      <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
+    </node>
+    <node pkg="robot_state_publisher" exec="robot_state_publisher" name="ghost_robot_state_publisher" output="screen">
+      <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
+      <param name="frame_prefix" value="ghost/"/>
+      <remap from="joint_states" to="/ghost/joint_states"/>
+    </node>
+  </group>
+
+  <!-- ==================== g1_rl_deploy ==================== -->
+  <!-- Policy deploy: /cmd_vel_safe + /upper_body_targets + /joint_states + /imu → /joint_commands.
+       Waist roll/pitch and selected arm joints are PD targets from /upper_body_targets;
+       waist yaw is held at its configured default. -->
+  <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
+    <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
+    <remap from="/cmd_vel" to="/cmd_vel_safe"/>
+  </node>
+
+  <!-- ==================== motion_playback ==================== -->
+  <!-- Dance motion CSV → /upper_body_targets_unsafe (CBF filters before policy) -->
+  <node pkg="g1_rl_deploy" exec="motion_playback" name="motion_playback" output="screen">
+    <remap from="/joint_commands" to="/upper_body_targets_unsafe"/>
+  </node>
+</launch>
