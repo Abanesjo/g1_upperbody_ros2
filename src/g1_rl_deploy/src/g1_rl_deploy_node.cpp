@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <string>
@@ -107,6 +108,7 @@ public:
         this->declare_parameter<double>("control_dt", 0.02);
         this->declare_parameter<double>("standup_duration", 3.0);
         this->declare_parameter<double>("gait_period", 0.6);
+        this->declare_parameter<bool>("wbc", false);
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x", {-0.5, 1.0});
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y", {-0.5, 0.5});
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z", {-1.0, 1.0});
@@ -122,6 +124,7 @@ public:
         control_dt_ = this->get_parameter("control_dt").as_double();
         standup_duration_ = this->get_parameter("standup_duration").as_double();
         gait_period_ = this->get_parameter("gait_period").as_double();
+        wbc_ = this->get_parameter("wbc").as_bool();
         default_pos_ = this->get_parameter("default_joint_pos").as_double_array();
         action_scale_ = this->get_parameter("action_scale").as_double_array();
 
@@ -134,6 +137,7 @@ public:
 
         // Load policy
         RCLCPP_INFO(this->get_logger(), "Loading full-body policy: %s", model_path.c_str());
+        RCLCPP_INFO(this->get_logger(), "WBC mode: %s", wbc_ ? "true" : "false");
         policy_ = std::make_unique<OnnxPolicy>(model_path);
         last_action_.resize(NUM_ACTION, 0.0f);
 
@@ -240,7 +244,9 @@ private:
         } else {
             if (!running_policy_) {
                 running_policy_ = true;
-                RCLCPP_INFO(this->get_logger(), "Phase 2: policy active; waist joints use PD targets");
+                RCLCPP_INFO(
+                    this->get_logger(), "Phase 2: policy active; waist/upper-body authority: %s",
+                    wbc_ ? "policy" : "PD targets");
             }
 
             // Build observation (106 dims)
@@ -292,14 +298,16 @@ private:
             for (int i = 0; i < NUM_MOTOR; ++i)
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
-            // Waist authority is through PD position targets, not policy actions.
-            // Yaw has no upper-body target stream, so hold its configured default.
-            cmd.position[WAIST_YAW_INDEX] = default_pos_[WAIST_YAW_INDEX];
+            if (!wbc_) {
+                // Waist authority is through PD position targets, not policy actions.
+                // Yaw has no upper-body target stream, so hold its configured default.
+                cmd.position[WAIST_YAW_INDEX] = default_pos_[WAIST_YAW_INDEX];
 
-            // Override all CBF-filtered upper-body targets directly, including
-            // waist_roll and waist_pitch.
-            for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
-                cmd.position[UPPER_BODY_INDICES[i]] = upper_body_cmd_[i];
+                // Override all CBF-filtered upper-body targets directly, including
+                // waist_roll and waist_pitch.
+                for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
+                    cmd.position[UPPER_BODY_INDICES[i]] = upper_body_cmd_[i];
+            }
 
             static int print_counter = 0;
             if (++print_counter % 250 == 0) {
@@ -327,6 +335,7 @@ private:
     std::vector<double> default_pos_, action_scale_;
     double control_dt_, standup_duration_, gait_period_;
     std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;
+    bool wbc_{false};
 
     // State
     double time_;

@@ -33,6 +33,7 @@ class CmdVelCBFNode(Node):
         super().__init__('cmd_vel_cbf_node')
 
         self.declare_parameter('dt', 0.02)
+        self.declare_parameter('area_cbf', True)
         self.declare_parameter('cmd_vel_cbf_enabled', True)
         self.declare_parameter('external_gamma', 5.0)
         self.declare_parameter('external_margin_phi', 0.001)
@@ -45,6 +46,7 @@ class CmdVelCBFNode(Node):
         self.declare_parameter('solver_tol', 1e-3)
 
         self._dt = float(self.get_parameter('dt').value)
+        self._area_cbf = bool(self.get_parameter('area_cbf').value)
         self._external_gamma = float(
             self.get_parameter('external_gamma').value
         )
@@ -77,6 +79,7 @@ class CmdVelCBFNode(Node):
             f'margin={self._external_margin_phi}, '
             f'world_circle_radius={self._world_circle_radius}, '
             f'head_collider_radius={self._head_collider_radius}, '
+            f'area_cbf={self._area_cbf}, '
             f'lin_vel_x={self._lin_vel_x_limits}, '
             f'lin_vel_y={self._lin_vel_y_limits}'
         )
@@ -236,7 +239,11 @@ class CmdVelCBFNode(Node):
         safe_msg.angular.y = cmd.angular.y
         safe_msg.angular.z = cmd.angular.z
 
-        if not bool(self.get_parameter('cmd_vel_cbf_enabled').value):
+        area_cbf = bool(self.get_parameter('area_cbf').value)
+        cmd_vel_cbf_enabled = bool(
+            self.get_parameter('cmd_vel_cbf_enabled').value
+        )
+        if not area_cbf or not cmd_vel_cbf_enabled:
             safe_xy = self._clip_planar_velocity(
                 np.array([cmd.linear.x, cmd.linear.y], dtype=np.float64)
             )

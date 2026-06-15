@@ -32,6 +32,7 @@ g1_rl_deploy_node:
     control_dt: 0.02        # 50 Hz policy inference
     standup_duration: 3.0   # seconds to interpolate to home pose
     gait_period: 0.6        # phase oscillator period (seconds)
+    wbc: false              # false preserves PD upper-body override
 
     # Velocity command limits
     cmd_vel_limits:

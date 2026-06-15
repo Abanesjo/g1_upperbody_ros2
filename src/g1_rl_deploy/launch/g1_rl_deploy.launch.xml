@@ -1,5 +1,8 @@
 <launch>
+  <arg name="wbc" default="false"/>
+
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
+    <param name="wbc" value="$(var wbc)"/>
   </node>
 </launch>

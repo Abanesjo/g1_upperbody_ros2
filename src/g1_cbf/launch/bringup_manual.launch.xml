@@ -6,6 +6,7 @@
   <arg name="simulator" default="false"/>
   <arg name="viz" default="true"/>
   <arg name="viz_rate" default="100.0"/>
+  <arg name="wbc" default="false"/>
 
   <!-- ==================== g1_bridge ==================== -->
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
@@ -73,6 +74,7 @@
        waist yaw is held at its configured default. -->
   <node pkg="g1_rl_deploy" exec="g1_rl_deploy_node" name="g1_rl_deploy_node" output="screen">
     <param from="$(find-pkg-share g1_rl_deploy)/config/config.yaml"/>
+    <param name="wbc" value="$(var wbc)"/>
     <remap from="/cmd_vel" to="/cmd_vel_safe"/>
   </node>
 

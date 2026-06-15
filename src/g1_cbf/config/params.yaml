@@ -27,6 +27,7 @@ g1_cbf_node:
     internal_activation_distance: 0.20
     internal_max_active_pairs: 48
     internal_always_keep_nearest: 12
+    area_cbf: true
     head_circle_cbf_enabled: true
     head_collider_radius: 0.1
     world_circle_radius: 3.0
@@ -43,6 +44,7 @@ g1_cbf_viz_node:
 cmd_vel_cbf_node:
   ros__parameters:
     dt: 0.02
+    area_cbf: true
     cmd_vel_cbf_enabled: true
     external_margin_phi: 0.15
     external_gamma: 4.0

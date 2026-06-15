@@ -70,6 +70,7 @@ class G1CBFNode(Node):
         self.declare_parameter('internal_activation_distance', 0.20)
         self.declare_parameter('internal_max_active_pairs', 48)
         self.declare_parameter('internal_always_keep_nearest', 12)
+        self.declare_parameter('area_cbf', True)
         self.declare_parameter('head_circle_cbf_enabled', True)
         self.declare_parameter('head_collider_radius', 0.3)
         self.declare_parameter('world_circle_radius', 3.0)
@@ -90,6 +91,7 @@ class G1CBFNode(Node):
         world_circle_radius = float(
             self.get_parameter('world_circle_radius').value
         )
+        area_cbf = bool(self.get_parameter('area_cbf').value)
         geom = str(self.get_parameter('collision_geometry').value).lower()
         if geom not in ('capsules', 'spheres'):
             raise ValueError(
@@ -108,6 +110,7 @@ class G1CBFNode(Node):
             f'external_margin_phi={external_margin_phi}, '
             f'head_circle_radius={world_circle_radius}, '
             f'head_collider_radius={head_collider_radius}, '
+            f'area_cbf={area_cbf}, '
             f'max_vel={max_velocity}, geometry={geom}'
         )
         if self.get_parameter('publish_viz').value:
@@ -532,8 +535,9 @@ class G1CBFNode(Node):
         )
 
     def _head_circle_args(self):
-        configured_enabled = bool(
-            self.get_parameter('head_circle_cbf_enabled').value
+        configured_enabled = (
+            bool(self.get_parameter('area_cbf').value)
+            and bool(self.get_parameter('head_circle_cbf_enabled').value)
         )
         enabled = configured_enabled and self._pelvis_position is not None
         if configured_enabled and self._pelvis_position is None:
