@@ -22,10 +22,19 @@ RUN apt install -y \
     ros-humble-foxglove-bridge \
     ros-humble-rqt-tf-tree \
     ros-humble-librealsense2* \
-    libapr1-dev libaprutil1-dev \
+    ros-humble-xacro \
+    ros-humble-ompl \
+    ros-humble-launch-pytest \
+    ros-humble-diagnostic-updater
+
+RUN apt install -y \
+    libapr1-dev \
+    libaprutil1-dev \
     libyaml-cpp-dev \
     libeigen3-dev \
     python3-pip \
+    python3-tqdm \
+    python3-requests \
     libboost-all-dev \
     libspdlog-dev \
     libfmt-dev \

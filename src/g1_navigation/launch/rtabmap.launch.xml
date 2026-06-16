@@ -24,8 +24,18 @@
     <arg name="icp_odometry"       default="true"/>
 
     <!-- Livox Driver -->
+    <node pkg="livox_ros2" exec="livox_ros2_node" name="livox_lidar_publisher" output="screen">
+        <param name="xfer_format" value="0"/>
+        <param name="multi_topic" value="0"/>
+        <param name="data_src" value="0"/>
+        <param name="publish_freq" value="10.0"/>
+        <param name="output_data_type" value="0"/>
+        <param name="frame_id" value="livox_frame"/>
+        <param name="user_config_path" value="$(find-pkg-share livox_ros2)/config/MID360_config.json"/>
+    </node>
 
     <!-- Realsense Driver -->
+    <node pkg="realsense2_camera" exec="realsense2_camera_node" name="realsense_camera"/>
 
 
     <include file="$(find-pkg-share rtabmap_launch)/launch/rtabmap.launch.py">
