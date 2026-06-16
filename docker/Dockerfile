@@ -22,6 +22,7 @@ RUN apt install -y \
     ros-humble-foxglove-bridge \
     ros-humble-rqt-tf-tree \
     ros-humble-librealsense2* \
+    ros-humble-rtabmap* \
     ros-humble-xacro \
     ros-humble-ompl \
     ros-humble-launch-pytest \

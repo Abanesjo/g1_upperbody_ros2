@@ -35,7 +35,7 @@
     </node>
 
     <!-- Realsense Driver -->
-    <node pkg="realsense2_camera" exec="realsense2_camera_node" name="realsense_camera"/>
+    <!-- <node pkg="realsense2_camera" exec="realsense2_camera_node" name="realsense_camera"/> -->
 
 
     <include file="$(find-pkg-share rtabmap_launch)/launch/rtabmap.launch.py">
