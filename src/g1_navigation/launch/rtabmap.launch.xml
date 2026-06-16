@@ -2,17 +2,18 @@
 <launch>
     <!-- Topics -->
     <arg name="odom_topic"        default="/odom"/>
-    <arg name="rgb_topic"         default="/rgb"/>
-    <arg name="depth_topic"       default="/depth"/>
-    <arg name="camera_info_topic" default="/camera_info"/>
+    <arg name="rgb_topic"         default="/camera/camera/color/image_raw"/>
+    <arg name="depth_topic"       default="/camera/camera/aligned_depth_to_color/image_raw"/>
+    <arg name="camera_info_topic" default="/camera/camera/color/camera_info"/>
     <arg name="scan_cloud_topic"  default="/livox/lidar"/>
     <arg name="imu_topic"         default="/livox/imu"/>
     <!-- Frames -->
-    <arg name="frame_id"      default="pelvis"/>
-    <arg name="map_frame_id"  default="map"/>
+    <arg name="frame_id"      default="torso_link"/>
+    <arg name="map_frame_id"  default="world"/>
     <arg name="odom_frame_id" default="odom"/>
     <arg name="vo_frame_id"   default="odom"/>
     <arg name="publish_tf_odom" default="true"/>
+    <arg name="wait_imu_to_init" default="false"/>
     <!-- Sync/Visualization -->
     <arg name="approx_sync"        default="true"/>
     <arg name="rgbd_sync"          default="true"/>
@@ -20,8 +21,14 @@
     <arg name="rviz"              default="true"/>
     <arg name="use_sim_time"       default="false"/>
 
-    <arg name="visual_odometry"    default="true"/>
+    <arg name="visual_odometry"    default="false"/>
     <arg name="icp_odometry"       default="true"/>
+
+    <!-- Quick-test static sensor extrinsics from g1_29_inspire.urdf. -->
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="torso_to_camera_link"
+          args="--x 0.0576235 --y 0.01753 --z 0.42987 --roll 0 --pitch 0.8307767239493009 --yaw 0 --frame-id torso_link --child-frame-id camera_link"/>
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="torso_to_livox_frame"
+          args="--x 0.0002835 --y 0.00003 --z 0.41618 --roll 0 --pitch 0.04014257279586953 --yaw 0 --frame-id torso_link --child-frame-id livox_frame"/>
 
     <!-- Livox Driver -->
     <node pkg="livox_ros2" exec="livox_ros2_node" name="livox_lidar_publisher" output="screen">
@@ -30,7 +37,7 @@
         <param name="data_src" value="0"/>
         <param name="publish_freq" value="10.0"/>
         <param name="output_data_type" value="0"/>
-        <param name="frame_id" value="mid360_link"/>
+        <param name="frame_id" value="livox_frame"/>
         <param name="user_config_path" value="$(find-pkg-share livox_ros2)/config/MID360_config.json"/>
     </node>
 
@@ -49,6 +56,7 @@
         <arg name="odom_topic" value="$(var odom_topic)"/>
         <arg name="rgb_topic" value="$(var rgb_topic)"/>
         <arg name="depth_topic" value="$(var depth_topic)"/>
+        <arg name="camera_info_topic" value="$(var camera_info_topic)"/>
         <!-- 3d LiDAR -->
         <arg name="subscribe_scan_cloud" value="true"/>
         <arg name="scan_cloud_topic"     value="$(var scan_cloud_topic)"/>
@@ -66,3 +74,10 @@
         <arg name="icp_odometry"    value="$(var icp_odometry)"/>
     </include>
 </launch>
+
+<!-- ros2 launch realsense2_camera rs_launch.py \
+    depth_module.depth_profile:=1280x720x30 \
+    rgb_camera.color_profile:=1280x720x30 \
+    align_depth.enable:=true \
+    enable_sync:=true \
+    publish_tf:=true -->
