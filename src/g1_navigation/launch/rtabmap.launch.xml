@@ -30,7 +30,7 @@
         <param name="data_src" value="0"/>
         <param name="publish_freq" value="10.0"/>
         <param name="output_data_type" value="0"/>
-        <param name="frame_id" value="livox_frame"/>
+        <param name="frame_id" value="mid360_link"/>
         <param name="user_config_path" value="$(find-pkg-share livox_ros2)/config/MID360_config.json"/>
     </node>
 
@@ -64,5 +64,5 @@
         <!-- Odometry -->
         <arg name="visual_odometry" value="$(var visual_odometry)"/>
         <arg name="icp_odometry"    value="$(var icp_odometry)"/>
-    </include>"
+    </include>
 </launch>
