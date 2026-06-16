@@ -22,3 +22,6 @@
 [submodule "src/livox_ros2"]
 	path = src/livox_ros2
 	url = https://github.com/Abanesjo/livox_ros2
+[submodule "src/realsense-ros"]
+	path = src/realsense-ros
+	url = https://github.com/realsenseai/realsense-ros

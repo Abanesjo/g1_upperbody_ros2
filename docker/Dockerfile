@@ -21,6 +21,7 @@ RUN apt install -y \
     ros-humble-joy \
     ros-humble-foxglove-bridge \
     ros-humble-rqt-tf-tree \
+    ros-humble-librealsense2* \
     libapr1-dev libaprutil1-dev \
     libyaml-cpp-dev \
     libeigen3-dev \
