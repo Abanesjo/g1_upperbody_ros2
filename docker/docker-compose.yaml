@@ -8,12 +8,13 @@ services:
     network_mode: host
     privileged: true
     runtime: nvidia
-    gpus: all
     environment:
       DISPLAY: ${DISPLAY}
       NVIDIA_DRIVER_CAPABILITIES: all
     volumes: 
     - /tmp/.X11-unix:/tmp/.X11-unix
     - ../src:/workspace/ros2_ws/src
+    - /dev:/dev
+    - /run/udev:/run/udev:ro
     stdin_open: true
     tty: true

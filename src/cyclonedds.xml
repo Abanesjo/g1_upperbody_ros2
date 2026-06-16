@@ -2,8 +2,8 @@
     <Domain>
         <General>
             <Interfaces>
-                <!-- <NetworkInterface name="enp130s0" priority="default" multicast="true" /> -->
-                <NetworkInterface name="lo" priority="default" multicast="false" />
+                <NetworkInterface name="enp130s0" priority="default" multicast="true" />
+                <!-- <NetworkInterface name="lo" priority="default" multicast="false" /> -->
             </Interfaces>
         </General>
         <Discovery>
