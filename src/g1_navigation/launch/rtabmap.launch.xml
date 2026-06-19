@@ -2,9 +2,6 @@
 <launch>
     <!-- Topics -->
     <arg name="odom_topic"        default="/odom"/>
-    <arg name="rgb_topic"         default="/camera/camera/color/image_raw"/>
-    <arg name="depth_topic"       default="/camera/camera/aligned_depth_to_color/image_raw"/>
-    <arg name="camera_info_topic" default="/camera/camera/color/camera_info"/>
     <arg name="scan_cloud_topic"  default="/livox/lidar"/>
     <arg name="imu_topic"         default="/livox/imu"/>
     <!-- Frames -->
@@ -16,21 +13,17 @@
     <arg name="wait_imu_to_init" default="false"/>
     <!-- Sync/Visualization -->
     <arg name="approx_sync"              default="true"/>
-    <arg name="approx_rgbd_sync"         default="true"/>
     <arg name="approx_sync_max_interval" default="0.5"/>
     <arg name="topic_queue_size"         default="50"/>
     <arg name="queue_size"               default="50"/>
-    <arg name="rgbd_sync"                default="true"/>
     <arg name="rtabmap_viz"              default="false"/>
-    <arg name="rviz"                     default="true"/>
+    <arg name="rviz"                     default="false"/>
     <arg name="use_sim_time"             default="false"/>
 
     <arg name="visual_odometry"    default="false"/>
     <arg name="icp_odometry"       default="true"/>
 
-    <!-- Quick-test static sensor extrinsics from g1_29_inspire.urdf. -->
-    <node pkg="tf2_ros" exec="static_transform_publisher" name="torso_to_camera_link"
-          args="--x 0.0576235 --y 0.01753 --z 0.42987 --roll 0 --pitch 0.8307767239493009 --yaw 0 --frame-id torso_link --child-frame-id camera_link"/>
+    <!-- Quick-test static LiDAR extrinsics from g1_29_inspire.urdf. -->
     <node pkg="tf2_ros" exec="static_transform_publisher" name="torso_to_livox_frame"
           args="--x 0.0002835 --y 0.00003 --z 0.41618 --roll 0 --pitch 0.04014257279586953 --yaw 0 --frame-id torso_link --child-frame-id livox_frame"/>
 
@@ -45,10 +38,6 @@
         <param name="user_config_path" value="$(find-pkg-share livox_ros2)/config/MID360_config.json"/>
     </node>
 
-    <!-- Realsense Driver -->
-    <!-- <node pkg="realsense2_camera" exec="realsense2_camera_node" name="realsense_camera"/> -->
-
-
     <include file="$(find-pkg-share rtabmap_launch)/launch/rtabmap.launch.py">
         <!-- base + map -->
         <arg name="frame_id"     value="$(var frame_id)"/>
@@ -58,9 +47,10 @@
         <arg name="publish_tf_odom" value="$(var publish_tf_odom)"/>
         <!-- inputs -->
         <arg name="odom_topic" value="$(var odom_topic)"/>
-        <arg name="rgb_topic" value="$(var rgb_topic)"/>
-        <arg name="depth_topic" value="$(var depth_topic)"/>
-        <arg name="camera_info_topic" value="$(var camera_info_topic)"/>
+        <arg name="depth" value="false"/>
+        <arg name="subscribe_rgb" value="false"/>
+        <arg name="subscribe_rgbd" value="false"/>
+        <arg name="rgbd_sync" value="false"/>
         <!-- 3d LiDAR -->
         <arg name="subscribe_scan_cloud" value="true"/>
         <arg name="scan_cloud_topic"     value="$(var scan_cloud_topic)"/>
@@ -69,11 +59,9 @@
         <arg name="wait_imu_to_init"  value="$(var wait_imu_to_init)"/>
         <!-- sync / viz -->
         <arg name="approx_sync" value="$(var approx_sync)"/>
-        <arg name="approx_rgbd_sync" value="$(var approx_rgbd_sync)"/>
         <arg name="approx_sync_max_interval" value="$(var approx_sync_max_interval)"/>
         <arg name="topic_queue_size" value="$(var topic_queue_size)"/>
         <arg name="queue_size" value="$(var queue_size)"/>
-        <arg name="rgbd_sync" value="$(var rgbd_sync)"/>
         <arg name="rtabmap_viz" value="$(var rtabmap_viz)"/>
         <arg name="rviz" value="$(var rviz)"/>
         <arg name="use_sim_time" value="$(var use_sim_time)"/>
@@ -82,10 +70,3 @@
         <arg name="icp_odometry"    value="$(var icp_odometry)"/>
     </include>
 </launch>
-
-<!-- ros2 launch realsense2_camera rs_launch.py \
-    depth_module.depth_profile:=1280x720x30 \
-    rgb_camera.color_profile:=1280x720x30 \
-    align_depth.enable:=true \
-    enable_sync:=true \
-    publish_tf:=true -->
