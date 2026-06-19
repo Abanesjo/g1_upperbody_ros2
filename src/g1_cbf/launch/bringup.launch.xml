@@ -79,6 +79,9 @@
     </node>
   </group>
 
+
+  <!-- Rtabmap -->
+
   <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz2" output="screen"
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
 </launch>

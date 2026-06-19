@@ -8,6 +8,7 @@ services:
     network_mode: host
     privileged: true
     runtime: nvidia
+    gpus: all
     environment:
       DISPLAY: ${DISPLAY}
       NVIDIA_DRIVER_CAPABILITIES: all

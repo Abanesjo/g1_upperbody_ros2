@@ -114,8 +114,8 @@ public:
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z", {-1.0, 1.0});
         this->declare_parameter<std::vector<double>>("default_joint_pos", std::vector<double>{
             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
-             0.0, 0.0, 0.0, 0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
-             0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0});
+             0.0, 0.0, 0.0, 0.35, 0.40, 0.0, 0.87, 0.0, 0.0, 0.0,
+             0.35,-0.40, 0.0, 0.87, 0.0, 0.0, 0.0});
         // Action scale for all 29 joints
         this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>(NUM_ACTION, 0.44));
 
