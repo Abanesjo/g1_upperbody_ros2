@@ -24,7 +24,7 @@
     <arg name="icp_odometry"       default="true"/>
 
     <!-- TEST -->
-    <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
+    <!-- <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
     <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
       <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
       <param name="simulator" value="false"/>
@@ -32,7 +32,7 @@
 
     <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
         <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
-    </node>
+    </node> -->
 
     <node pkg="tf2_ros" exec="static_transform_publisher" name="base_footprint_to_pelvis"
         args="--x 0 --y 0 --z 0.784202 --roll 0 --pitch 0 --yaw 0 --frame-id base_footprint --child-frame-id pelvis"/>
@@ -77,8 +77,8 @@
         <arg name="approx_sync_max_interval" value="$(var approx_sync_max_interval)"/>
         <arg name="topic_queue_size" value="$(var topic_queue_size)"/>
         <arg name="queue_size" value="$(var queue_size)"/>
-        <arg name="rtabmap_viz" value="$(var rtabmap_viz)"/>
-        <arg name="rviz" value="$(var rviz)"/>
+        <arg name="rtabmap_viz" value="false"/>
+        <arg name="rviz" value="false"/>
         <arg name="use_sim_time" value="$(var use_sim_time)"/>
         <!-- Odometry -->
         <arg name="visual_odometry" value="$(var visual_odometry)"/>

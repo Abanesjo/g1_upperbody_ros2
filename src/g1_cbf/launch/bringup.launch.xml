@@ -23,8 +23,6 @@
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
   <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen"/>
 
-  <node pkg="g1_cbf" exec="pelvis_tf_publisher_node" name="pelvis_tf_publisher_node" output="screen"/>
-
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="urdf_path" value="$(var urdf_file)"/>
@@ -79,9 +77,10 @@
     </node>
   </group>
 
-
-  <!-- Rtabmap -->
-
   <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz2" output="screen"
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
+
+  <!-- Rtabmap -->
+  <include file="$(find-pkg-share g1_navigation)/launch/rtabmap.launch.xml"/>
+  
 </launch>
