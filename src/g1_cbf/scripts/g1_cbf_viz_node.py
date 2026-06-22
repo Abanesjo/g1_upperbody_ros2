@@ -8,6 +8,7 @@ cannot block the safety-filter timer.
 import os
 os.environ.setdefault('JAX_PLATFORM_NAME', 'cpu')
 
+from builtin_interfaces.msg import Time
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -138,7 +139,7 @@ class G1CBFVizNode(Node):
         if self.q_ctrl is None:
             return
 
-        stamp = self.get_clock().now().to_msg()
+        stamp = Time()
         self.viz.publish(stamp, self.q_ctrl, self.q_legs)
         self.viz.publish_distances(
             stamp, self.q_ctrl, self._human_capsules or None, self.q_legs,

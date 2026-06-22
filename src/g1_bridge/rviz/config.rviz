@@ -34,7 +34,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: PointCloud2
+    SyncSource: ""
 Visualization Manager:
   Class: ""
   Displays:
@@ -726,7 +726,7 @@ Visualization Manager:
         Inertia: false
         Mass: false
       Name: Unsafe Robot
-      TF Prefix: /ghost
+      TF Prefix: ghost
       Update Interval: 0
       Value: true
       Visual Enabled: true

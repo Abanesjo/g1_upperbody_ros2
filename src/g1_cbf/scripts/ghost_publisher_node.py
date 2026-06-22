@@ -7,9 +7,11 @@ all 29 joints: unsafe values override the corresponding joints from feedback.
 """
 
 import rclpy
+from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
+from tf2_ros import StaticTransformBroadcaster
 
 SENSOR_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -17,8 +19,6 @@ SENSOR_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
-from geometry_msgs.msg import TransformStamped
-from tf2_ros import StaticTransformBroadcaster
 
 
 class GhostPublisherNode(Node):
@@ -30,13 +30,21 @@ class GhostPublisherNode(Node):
         self.declare_parameter('x', 0.0)
         self.declare_parameter('y', 0.0)
         self.declare_parameter('z', 0.78)
+        self.declare_parameter('publish_rate', 50.0)
         parent_frame = self.get_parameter('parent_frame').value
         child_frame = self.get_parameter('child_frame').value
         x = float(self.get_parameter('x').value)
         y = float(self.get_parameter('y').value)
         z = float(self.get_parameter('z').value)
+        publish_rate = float(self.get_parameter('publish_rate').value)
+        if publish_rate <= 0.0:
+            self.get_logger().warn('publish_rate must be positive; using 50 Hz')
+            publish_rate = 50.0
 
         self._latest_joint_states = {}  # name -> position (from feedback)
+        self._latest_unsafe_commands = {}  # name -> position (unsafe target)
+        self._joint_state_order = []
+        self._unsafe_order = []
 
         self.js_pub = self.create_publisher(
             JointState, '/ghost/joint_states', SENSOR_QOS,
@@ -51,6 +59,7 @@ class GhostPublisherNode(Node):
             JointState, '/joint_states',
             self._joint_states_cb, SENSOR_QOS,
         )
+        self.create_timer(1.0 / publish_rate, self._publish_ghost_state)
 
         # Static TF anchoring the ghost robot in the world frame.
         self.tf_broadcaster = StaticTransformBroadcaster(self)
@@ -66,28 +75,47 @@ class GhostPublisherNode(Node):
 
         self.get_logger().info(
             'Ghost publisher ready '
-            f'({parent_frame} -> {child_frame}, xyz=[{x:.3f}, {y:.3f}, {z:.3f}])'
+            f'({parent_frame} -> {child_frame}, xyz=[{x:.3f}, {y:.3f}, {z:.3f}], '
+            f'publish_rate={publish_rate:.1f} Hz)'
         )
 
     def _joint_states_cb(self, msg: JointState):
+        self._joint_state_order = []
         for i, name in enumerate(msg.name):
             if i < len(msg.position):
+                self._joint_state_order.append(name)
                 self._latest_joint_states[name] = msg.position[i]
 
     def _unsafe_cb(self, msg: JointState):
-        # Start from current joint states, override with unsafe commands
-        merged = dict(self._latest_joint_states)
+        unsafe_commands = {}
+        unsafe_order = []
         for i, name in enumerate(msg.name):
             if i < len(msg.position):
-                merged[name] = msg.position[i]
+                unsafe_order.append(name)
+                unsafe_commands[name] = msg.position[i]
+        self._unsafe_order = unsafe_order
+        self._latest_unsafe_commands = unsafe_commands
+
+    def _publish_ghost_state(self):
+        merged = dict(self._latest_joint_states)
+        merged.update(self._latest_unsafe_commands)
 
         if not merged:
             return
 
+        names = [
+            name for name in self._joint_state_order
+            if name in merged
+        ]
+        names.extend(
+            name for name in self._unsafe_order
+            if name in merged and name not in names
+        )
+
         out = JointState()
         out.header.stamp = self.get_clock().now().to_msg()
-        out.name = list(merged.keys())
-        out.position = list(merged.values())
+        out.name = names
+        out.position = [merged[name] for name in names]
         self.js_pub.publish(out)
 
 
