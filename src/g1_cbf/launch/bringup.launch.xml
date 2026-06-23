@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
-  <arg name="rviz" default="true"/>
+  <arg name="rviz" default="false"/>
   <arg name="ghost" default="true"/>
   <arg name="simulator" default="false"/>
   <arg name="viz_rate" default="100.0"/>
