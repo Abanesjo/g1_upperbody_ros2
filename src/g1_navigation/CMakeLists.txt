@@ -19,7 +19,8 @@ find_package(ompl REQUIRED)
 
 
 install(PROGRAMS
-  # scripts/
+  scripts/base_footprint_tf_publisher_node.py
+  RENAME base_footprint_tf_publisher_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

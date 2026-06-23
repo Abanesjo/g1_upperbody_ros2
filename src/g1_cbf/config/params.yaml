@@ -2,9 +2,9 @@ g1_cbf_node:
   ros__parameters:
     dt: 0.01
     internal_margin_phi: 0.05  # [m], minimum clearance margin for self-collision
-    external_margin_phi: 0.15  # [m], minimum clearance margin for human-robot collision
+    external_margin_phi: 0.8  # [m], minimum clearance margin for human-robot collision
     internal_gamma: 4.0        # CBF gain for self-collision
-    external_gamma: 4.0        # CBF gain for human-robot collision
+    external_gamma: 1.0        # CBF gain for human-robot collision
     K: 10.0           # proportional speed gain
     max_velocity: 2.0  # rad/s velocity limit
     max_lead: 1.5        # max distance (rad) target can lead actual position
@@ -46,12 +46,12 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.15
-    external_gamma: 4.0
+    external_margin_phi: 0.8
+    external_gamma: 1.0
     head_collider_radius: 0.15
     world_circle_radius: 3.0
     cmd_vel_limits:
-      lin_vel_x: [-0.5, 1.0]
+      lin_vel_x: [-1.0, 1.0]
       lin_vel_y: [-0.5, 0.5]
     state_timeout_sec: 0.2
     max_iter: 200
@@ -67,7 +67,7 @@ origin_cmd_vel_publisher_node:
     kd_linear: 0.05
     kp_yaw: 1.0
     kd_yaw: 0.05
-    position_deadzone: 0.1
+    position_deadzone: 0.05
     yaw_deadzone_deg: 15.0
     max_linear_x: 1.0
     max_reverse_x: 0.5

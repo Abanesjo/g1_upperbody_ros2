@@ -28,7 +28,6 @@
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
 
   <!-- ==================== g1_cbf ==================== -->
-  <node pkg="g1_cbf" exec="pelvis_tf_publisher_node" name="pelvis_tf_publisher_node" output="screen"/>
 
   <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (fed to RL policy) -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
@@ -64,12 +63,14 @@
   <group if="$(var ghost)">
     <node pkg="g1_cbf" exec="ghost_publisher_node" name="ghost_publisher_node" output="screen">
       <param name="parent_frame" value="world"/>
-      <param name="child_frame" value="ghost/pelvis"/>
+      <param name="child_frame" value="ghost/base_footprint"/>
       <param name="x" value="0.0"/>
       <param name="y" value="0.0"/>
-      <param name="z" value="0.78"/>
+      <param name="z" value="0.0"/>
       <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
     </node>
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="ghost_base_footprint_to_pelvis"
+          args="--x 0 --y 0 --z 0.784202 --roll 0 --pitch 0 --yaw 0 --frame-id ghost/base_footprint --child-frame-id ghost/pelvis"/>
     <node pkg="robot_state_publisher" exec="robot_state_publisher" name="ghost_robot_state_publisher" output="screen">
       <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
       <param name="frame_prefix" value="ghost/"/>

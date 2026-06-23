@@ -3,22 +3,19 @@
   <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
   <arg name="rviz" default="true"/>
   <arg name="ghost" default="true"/>
-  <arg name="bridge" default="true"/>
   <arg name="simulator" default="false"/>
   <arg name="viz_rate" default="100.0"/>
-  <arg name="wbc" default="true"/>
-  <arg name="area_cbf" default="false"/>
+  <arg name="wbc" default="false"/>
+  <arg name="area_cbf" default="true"/>
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
   </node>
 
-  <group if="$(var bridge)">
-    <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
-      <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
-      <param name="simulator" value="$(var simulator)"/>
-    </node>
-  </group>
+  <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
+    <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+    <param name="simulator" value="$(var simulator)"/>
+  </node>
 
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
   <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen"/>
@@ -81,8 +78,5 @@
 
   <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz2" output="screen"
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
-
-  <!-- Rtabmap -->
-  <include file="$(find-pkg-share g1_navigation)/launch/rtabmap.launch.xml"/>
   
 </launch>

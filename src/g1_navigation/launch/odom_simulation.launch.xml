@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="g1_navigation" exec="base_footprint_tf_publisher_node"
+        name="base_footprint_tf_publisher_node" output="screen"/>
+
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="base_footprint_to_pelvis"
+        args="--x 0 --y 0 --z 0.784202 --roll 0 --pitch 0 --yaw 0 --frame-id base_footprint --child-frame-id pelvis"/>
+
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="mid360_to_livox_frame"
+        args="--x 0 --y 0 --z 0 --roll 3.141592653589793 --pitch 0 --yaw 0 --frame-id mid360_link --child-frame-id livox_frame"/>
+
+    <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml"/>
+</launch>

@@ -16,7 +16,7 @@ constexpr double LIN_X_SCALE = 1.0;
 constexpr double LIN_Y_SCALE = 0.5;
 constexpr double ANG_Z_SCALE = 1.0;
 
-constexpr double LIN_X_MIN = -0.5;
+constexpr double LIN_X_MIN = -1.0;
 constexpr double LIN_X_MAX = 1.0;
 constexpr double LIN_Y_MIN = -0.5;
 constexpr double LIN_Y_MAX = 0.5;

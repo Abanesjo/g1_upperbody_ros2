@@ -36,7 +36,7 @@ g1_rl_deploy_node:
 
     # Velocity command limits
     cmd_vel_limits:
-      lin_vel_x: [-0.5, 1.0]
+      lin_vel_x: [-1.0, 1.0]
       lin_vel_y: [-0.5, 0.5]
       ang_vel_z: [-1.0, 1.0]
 
