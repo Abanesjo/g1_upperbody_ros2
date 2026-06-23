@@ -9,7 +9,6 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <utility>
 
 #include "common/motor_crc_hg.h"
 #include "nlohmann/json.hpp"
@@ -22,6 +21,7 @@
 #include "unitree_api/msg/response.hpp"
 #include "unitree_hg/msg/low_cmd.hpp"
 #include "unitree_hg/msg/low_state.hpp"
+#include "unitree_hg/msg/motor_cmd.hpp"
 
 namespace {
 
@@ -35,11 +35,12 @@ constexpr int MOTION_RELEASE_MAX_ATTEMPTS = 3;
 constexpr int JOY_DAMP_BUTTON = 4;
 constexpr int JOY_CONTROL_TOGGLE_BUTTON = 5;
 constexpr double NEUTRAL_DURATION_SECONDS = 3.0;
+constexpr float POS_STOP_F = 2.146E+9F;
+constexpr float VEL_STOP_F = 16000.0F;
 constexpr uint8_t MODE_PR = 0;
 constexpr float NEUTRAL_LEG_KP = 100.0F;
 constexpr float NEUTRAL_UPPER_KP = 50.0F;
 constexpr float NEUTRAL_KD = 1.0F;
-constexpr float DAMP_KP = 0.0F;
 constexpr float DAMP_KD = 2.0F;
 constexpr auto MOTION_CALL_TIMEOUT = std::chrono::seconds(5);
 constexpr auto MOTION_DISCOVERY_TIMEOUT = std::chrono::seconds(3);
@@ -116,12 +117,19 @@ enum class OrchestratorState {
   kDamp,
 };
 
+struct PidGains {
+  double kp{};
+  double kd{};
+  double ki{};
+};
+
 }  // namespace
 
 class G1BridgeNode : public rclcpp::Node {
  public:
   G1BridgeNode() : Node("g1_bridge_node") {
     const bool simulator = this->declare_parameter<bool>("simulator", false);
+    const bool wbc = this->declare_parameter<bool>("wbc", true);
     if (simulator) {
       RCLCPP_WARN(this->get_logger(),
                   "Simulator mode enabled - skipping Unitree G1 motion "
@@ -135,13 +143,23 @@ class G1BridgeNode : public rclcpp::Node {
       const auto &name = JOINT_NAMES[i];
       joint_map_[name] = i;
 
-      const auto kp_param = "gains." + name + ".kp";
-      const auto kd_param = "gains." + name + ".kd";
+      std::string gain_name = name;
+      if (!wbc && name == "waist_roll_joint") {
+        gain_name = "waist_roll_joint_manual";
+      } else if (!wbc && name == "waist_pitch_joint") {
+        gain_name = "waist_pitch_joint_manual";
+      }
+
+      const auto kp_param = "gains." + gain_name + ".kp";
+      const auto kd_param = "gains." + gain_name + ".kd";
+      const auto ki_param = "gains." + gain_name + ".ki";
       this->declare_parameter<double>(kp_param, 100.0);
       this->declare_parameter<double>(kd_param, 3.0);
+      this->declare_parameter<double>(ki_param, 0.0);
       gains_[i] = {
           this->get_parameter(kp_param).as_double(),
           this->get_parameter(kd_param).as_double(),
+          this->get_parameter(ki_param).as_double(),
       };
     }
 
@@ -393,7 +411,23 @@ class G1BridgeNode : public rclcpp::Node {
     return value;
   }
 
+  void ResetControlIntegral() {
+    control_integral_.fill(0.0);
+    has_control_update_time_ = false;
+  }
+
+  static void SetTorqueCommand(unitree_hg::msg::MotorCmd &motor_cmd,
+                               double tau) {
+    motor_cmd.mode = 1;
+    motor_cmd.q = POS_STOP_F;
+    motor_cmd.dq = VEL_STOP_F;
+    motor_cmd.tau = static_cast<float>(tau);
+    motor_cmd.kp = 0.0F;
+    motor_cmd.kd = 0.0F;
+  }
+
   void StartNeutralRamp(const rclcpp::Time &now) {
+    ResetControlIntegral();
     neutral_start_positions_ = current_positions_;
     neutral_start_time_ = now;
     neutral_ramp_active_ = true;
@@ -403,6 +437,7 @@ class G1BridgeNode : public rclcpp::Node {
   void JoyCallback(const sensor_msgs::msg::Joy::SharedPtr msg) {
     const bool damp_pressed = IsButtonPressed(*msg, JOY_DAMP_BUTTON);
     if (damp_pressed && state_ != OrchestratorState::kDamp) {
+      ResetControlIntegral();
       state_ = OrchestratorState::kDamp;
       neutral_ramp_active_ = false;
       RCLCPP_ERROR(this->get_logger(),
@@ -447,6 +482,7 @@ class G1BridgeNode : public rclcpp::Node {
       return;
     }
 
+    ResetControlIntegral();
     state_ = OrchestratorState::kControl;
     RCLCPP_INFO(this->get_logger(), "Switching to control state");
   }
@@ -466,17 +502,15 @@ class G1BridgeNode : public rclcpp::Node {
     cmd.mode_pr = MODE_PR;
     cmd.mode_machine = mode_machine_;
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      auto &motor_cmd = cmd.motor_cmd[i];
-      motor_cmd.mode = 1;
-      motor_cmd.tau = 0.0F;
-      motor_cmd.q = neutral_ramp_active_
-                        ? static_cast<float>(
-                              (1.0 - ratio) * neutral_start_positions_[i] +
-                              ratio * DEFAULT_JOINT_POS[i])
-                        : DEFAULT_JOINT_POS[i];
-      motor_cmd.dq = 0.0F;
-      motor_cmd.kp = (i < 13) ? NEUTRAL_LEG_KP : NEUTRAL_UPPER_KP;
-      motor_cmd.kd = NEUTRAL_KD;
+      const double target_position =
+          neutral_ramp_active_
+              ? (1.0 - ratio) * neutral_start_positions_[i] +
+                    ratio * DEFAULT_JOINT_POS[i]
+              : DEFAULT_JOINT_POS[i];
+      const double kp = (i < 13) ? NEUTRAL_LEG_KP : NEUTRAL_UPPER_KP;
+      const double tau = kp * (target_position - current_positions_[i]) -
+                         NEUTRAL_KD * current_velocities_[i];
+      SetTorqueCommand(cmd.motor_cmd[i], tau);
     }
   }
 
@@ -484,13 +518,32 @@ class G1BridgeNode : public rclcpp::Node {
     cmd.mode_pr = MODE_PR;
     cmd.mode_machine = mode_machine_;
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      auto &motor_cmd = cmd.motor_cmd[i];
-      motor_cmd.mode = 1;
-      motor_cmd.tau = 0.0F;
-      motor_cmd.q = current_positions_[i];
-      motor_cmd.dq = 0.0F;
-      motor_cmd.kp = DAMP_KP;
-      motor_cmd.kd = DAMP_KD;
+      SetTorqueCommand(cmd.motor_cmd[i], -DAMP_KD * current_velocities_[i]);
+    }
+  }
+
+  void BuildControlCommand(unitree_hg::msg::LowCmd &cmd,
+                           const rclcpp::Time &now) {
+    double dt = 0.0;
+    if (has_control_update_time_) {
+      dt = (now - last_control_update_time_).seconds();
+    }
+    last_control_update_time_ = now;
+    has_control_update_time_ = true;
+
+    cmd.mode_pr = mode_pr_;
+    cmd.mode_machine = mode_machine_;
+    for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
+      const double position_error =
+          target_positions_[i] - current_positions_[i];
+      const double velocity_error =
+          target_velocities_[i] - current_velocities_[i];
+      control_integral_[i] += position_error * dt;
+      const double tau = gains_[i].kp * position_error +
+                         gains_[i].kd * velocity_error +
+                         gains_[i].ki * control_integral_[i] +
+                         target_efforts_[i];
+      SetTorqueCommand(cmd.motor_cmd[i], tau);
     }
   }
 
@@ -512,6 +565,7 @@ class G1BridgeNode : public rclcpp::Node {
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       const auto &motor = msg->motor_state[i];
       current_positions_[i] = static_cast<float>(motor.q);
+      current_velocities_[i] = static_cast<float>(motor.dq);
       joint_state.name.push_back(JOINT_NAMES[i]);
       joint_state.position.push_back(static_cast<double>(motor.q));
       joint_state.velocity.push_back(static_cast<double>(motor.dq));
@@ -535,6 +589,9 @@ class G1BridgeNode : public rclcpp::Node {
     imu_pub_->publish(imu);
 
     if (!had_state) {
+      target_positions_ = current_positions_;
+      target_velocities_.fill(0.0F);
+      target_efforts_.fill(0.0F);
       StartNeutralRamp(stamp);
       RCLCPP_INFO(this->get_logger(),
                   "Received first /lowstate - starting neutral ramp");
@@ -549,16 +606,11 @@ class G1BridgeNode : public rclcpp::Node {
       return;
     }
 
-    unitree_hg::msg::LowCmd cmd;
-    cmd.mode_pr = mode_pr_;
-    cmd.mode_machine = mode_machine_;
-
-    for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      auto &motor_cmd = cmd.motor_cmd[i];
-      motor_cmd.mode = 1;
-      motor_cmd.kp = static_cast<float>(gains_[i].first);
-      motor_cmd.kd = static_cast<float>(gains_[i].second);
+    if (!has_latest_control_cmd_) {
+      target_positions_ = current_positions_;
     }
+    target_velocities_.fill(0.0F);
+    target_efforts_.fill(0.0F);
 
     const bool has_position = !msg->position.empty();
     const bool has_velocity = !msg->velocity.empty();
@@ -572,19 +624,17 @@ class G1BridgeNode : public rclcpp::Node {
         continue;
       }
 
-      auto &motor_cmd = cmd.motor_cmd[it->second];
       if (has_position && i < msg->position.size()) {
-        motor_cmd.q = static_cast<float>(msg->position[i]);
+        target_positions_[it->second] = static_cast<float>(msg->position[i]);
       }
       if (has_velocity && i < msg->velocity.size()) {
-        motor_cmd.dq = static_cast<float>(msg->velocity[i]);
+        target_velocities_[it->second] = static_cast<float>(msg->velocity[i]);
       }
       if (has_effort && i < msg->effort.size()) {
-        motor_cmd.tau = static_cast<float>(msg->effort[i]);
+        target_efforts_[it->second] = static_cast<float>(msg->effort[i]);
       }
     }
 
-    latest_control_lowcmd_ = cmd;
     has_latest_control_cmd_ = true;
   }
 
@@ -594,13 +644,14 @@ class G1BridgeNode : public rclcpp::Node {
     }
 
     unitree_hg::msg::LowCmd cmd;
+    const auto now = this->get_clock()->now();
     if (state_ == OrchestratorState::kDamp) {
       BuildDampCommand(cmd);
     } else if (state_ == OrchestratorState::kControl &&
                has_latest_control_cmd_) {
-      cmd = latest_control_lowcmd_;
+      BuildControlCommand(cmd, now);
     } else {
-      BuildNeutralCommand(cmd, this->get_clock()->now());
+      BuildNeutralCommand(cmd, now);
     }
 
     get_crc(cmd);
@@ -618,11 +669,16 @@ class G1BridgeNode : public rclcpp::Node {
       motion_switch_request_pub_;
 
   std::unordered_map<std::string, std::size_t> joint_map_;
-  std::array<std::pair<double, double>, G1_NUM_MOTOR> gains_{};
+  std::array<PidGains, G1_NUM_MOTOR> gains_{};
   std::array<float, G1_NUM_MOTOR> current_positions_{};
+  std::array<float, G1_NUM_MOTOR> current_velocities_{};
   std::array<float, G1_NUM_MOTOR> neutral_start_positions_{};
-  unitree_hg::msg::LowCmd latest_control_lowcmd_;
+  std::array<float, G1_NUM_MOTOR> target_positions_{};
+  std::array<float, G1_NUM_MOTOR> target_velocities_{};
+  std::array<float, G1_NUM_MOTOR> target_efforts_{};
+  std::array<double, G1_NUM_MOTOR> control_integral_{};
   rclcpp::Time neutral_start_time_{};
+  rclcpp::Time last_control_update_time_{};
   uint8_t mode_machine_{};
   uint8_t mode_pr_{};
   OrchestratorState state_{OrchestratorState::kNeutral};
@@ -630,6 +686,7 @@ class G1BridgeNode : public rclcpp::Node {
   bool has_latest_control_cmd_{false};
   bool neutral_ramp_active_{false};
   bool last_control_button_pressed_{false};
+  bool has_control_update_time_{false};
 };
 
 int main(int argc, char **argv) {

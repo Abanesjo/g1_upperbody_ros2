@@ -2,7 +2,7 @@ g1_cbf_node:
   ros__parameters:
     dt: 0.01
     internal_margin_phi: 0.05  # [m], minimum clearance margin for self-collision
-    external_margin_phi: 0.8  # [m], minimum clearance margin for human-robot collision
+    external_margin_phi: 0.5  # [m], minimum clearance margin for human-robot collision
     internal_gamma: 4.0        # CBF gain for self-collision
     external_gamma: 1.0        # CBF gain for human-robot collision
     K: 10.0           # proportional speed gain
@@ -30,7 +30,7 @@ g1_cbf_node:
     area_cbf: true
     head_circle_cbf_enabled: true
     head_collider_radius: 0.1
-    world_circle_radius: 3.0
+    world_circle_radius: 1.0
 
 g1_cbf_viz_node:
   ros__parameters:
@@ -46,10 +46,10 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.8
+    external_margin_phi: 0.5
     external_gamma: 1.0
     head_collider_radius: 0.15
-    world_circle_radius: 3.0
+    world_circle_radius: 1.0
     cmd_vel_limits:
       lin_vel_x: [-1.0, 1.0]
       lin_vel_y: [-0.5, 0.5]
@@ -77,5 +77,5 @@ origin_cmd_vel_publisher_node:
 
 pelvis_circle_publisher_node:
   ros__parameters:
-    world_circle_radius: 3.0
+    world_circle_radius: 1.8
     height: 0.5

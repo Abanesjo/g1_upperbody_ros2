@@ -8,6 +8,7 @@
   <arg name="viz_rate" default="100.0"/>
   <arg name="wbc" default="false"/>
   <arg name="area_cbf" default="true"/>
+  <arg name="center_seeking" default="true"/>
 
   <!-- ==================== g1_bridge ==================== -->
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
@@ -18,6 +19,7 @@
     <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
       <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
       <param name="simulator" value="$(var simulator)"/>
+      <param name="wbc" value="$(var wbc)"/>
     </node>
   </group>
 
@@ -25,7 +27,8 @@
         args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
 
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
-  <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen"/>
+  <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen"
+        unless="$(var center_seeking)"/>
 
   <!-- ==================== g1_cbf ==================== -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
@@ -40,6 +43,11 @@
   <node pkg="g1_cbf" exec="cmd_vel_cbf_node" name="cmd_vel_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="area_cbf" value="$(var area_cbf)"/>
+  </node>
+
+  <node pkg="g1_cbf" exec="origin_cmd_vel_publisher_node" name="origin_cmd_vel_publisher_node" output="screen"
+        if="$(var center_seeking)">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
   </node>
 
   <!-- Isolated, rate-limited marker publisher for RViz -->

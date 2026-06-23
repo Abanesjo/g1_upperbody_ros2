@@ -5,8 +5,8 @@
   <arg name="ghost" default="true"/>
   <arg name="simulator" default="false"/>
   <arg name="viz_rate" default="100.0"/>
-  <arg name="wbc" default="false"/>
-  <arg name="area_cbf" default="true"/>
+  <arg name="wbc" default="true"/>
+  <arg name="area_cbf" default="false"/>
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
@@ -15,6 +15,7 @@
   <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
     <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
     <param name="simulator" value="$(var simulator)"/>
+    <param name="wbc" value="$(var wbc)"/>
   </node>
 
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
