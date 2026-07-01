@@ -63,8 +63,8 @@ class G1OrchestratorNode : public rclcpp::Node {
     this->declare_parameter<std::string>("initial_mode", "neutral");
     const std::string initial_mode =
         this->get_parameter("initial_mode").as_string();
-    if (initial_mode == "damp") {
-      state_ = OrchestratorState::kDamp;
+    if (initial_mode == "control") {
+      state_ = OrchestratorState::kControl;
     } else if (initial_mode != "neutral") {
       RCLCPP_WARN(this->get_logger(),
                   "Unknown initial_mode '%s', defaulting to neutral",
@@ -227,7 +227,10 @@ class G1OrchestratorNode : public rclcpp::Node {
       target_positions_ = current_positions_;
       target_velocities_.fill(0.0F);
       target_efforts_.fill(0.0F);
-      if (state_ == OrchestratorState::kDamp) {
+      if (state_ == OrchestratorState::kControl) {
+        RCLCPP_INFO(this->get_logger(),
+                    "Received first /joint_states - starting in control mode");
+      } else if (state_ == OrchestratorState::kDamp) {
         RCLCPP_INFO(this->get_logger(),
                     "Received first /joint_states - starting in damp mode");
       } else {
@@ -333,8 +336,7 @@ class G1OrchestratorNode : public rclcpp::Node {
 
     if (state_ == OrchestratorState::kDamp) {
       BuildDampCommand(cmd);
-    } else if (state_ == OrchestratorState::kControl &&
-               has_latest_control_cmd_) {
+    } else if (state_ == OrchestratorState::kControl) {
       BuildControlCommand(cmd);
     } else {
       BuildNeutralCommand(cmd, this->get_clock()->now());
