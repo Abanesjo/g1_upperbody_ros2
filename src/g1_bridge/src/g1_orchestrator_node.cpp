@@ -102,7 +102,8 @@ class G1OrchestratorNode : public rclcpp::Node {
           JoyCallback(msg);
         });
 
-    publish_timer_ = this->create_wall_timer(
+    publish_timer_ = rclcpp::create_timer(
+        this, this->get_clock(),
         std::chrono::microseconds(static_cast<int64_t>(1e6 / rate)),
         [this] { PublishOrchestratedCommand(); });
 

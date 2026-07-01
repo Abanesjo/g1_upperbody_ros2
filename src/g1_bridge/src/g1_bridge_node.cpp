@@ -178,7 +178,8 @@ class G1BridgeNode : public rclcpp::Node {
               OrchestratorStateCallback(msg);
             });
 
-    republish_timer_ = this->create_wall_timer(
+    republish_timer_ = rclcpp::create_timer(
+        this, this->get_clock(),
         std::chrono::milliseconds(2), [this] { PublishLowCmd(); });
 
     RCLCPP_INFO(this->get_logger(), "G1 bridge node started");

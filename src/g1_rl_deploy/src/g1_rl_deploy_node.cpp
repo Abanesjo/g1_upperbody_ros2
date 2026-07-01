@@ -165,7 +165,8 @@ public:
             "/joint_commands", qos);
 
         // 50 Hz control timer
-        control_timer_ = this->create_wall_timer(
+        control_timer_ = rclcpp::create_timer(
+            this, this->get_clock(),
             std::chrono::microseconds(static_cast<int>(control_dt_ * 1e6)),
             [this] { Control(); });
 
