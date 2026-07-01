@@ -2,18 +2,43 @@
   <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
   <arg name="rviz" default="true"/>
   <arg name="simulator" default="false"/>
+  <arg name="mujoco" default="false"/>
+  <arg name="use_sim_time" default="false"/>
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(command 'cat $(var urdf_file)')"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
-  <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
-    <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
-    <param name="simulator" value="$(var simulator)"/>
+  <node pkg="g1_bridge" exec="g1_orchestrator_node" name="g1_orchestrator_node" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
-  <node pkg="joy" exec="joy_node" name="joy_node" output="screen"/>
+  <group unless="$(var simulator)">
+    <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
+      <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+      <param name="simulator" value="false"/>
+      <param name="mujoco" value="$(var mujoco)"/>
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+  </group>
+  <group if="$(var simulator)">
+    <group if="$(var mujoco)">
+      <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
+        <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
+        <param name="simulator" value="true"/>
+        <param name="mujoco" value="true"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+      </node>
+    </group>
+  </group>
+
+  <node pkg="joy" exec="joy_node" name="joy_node" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
 
   <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" if="$(var rviz)"
-        args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz"/>
+        args="-d $(find-pkg-share g1_bridge)/rviz/config.rviz">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
 </launch>

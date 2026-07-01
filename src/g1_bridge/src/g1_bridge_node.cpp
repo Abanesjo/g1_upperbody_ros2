@@ -15,8 +15,8 @@
 #include "rclcpp/executors/single_threaded_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
-#include "sensor_msgs/msg/joy.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "unitree_api/msg/request.hpp"
 #include "unitree_api/msg/response.hpp"
 #include "unitree_hg/msg/low_cmd.hpp"
@@ -31,9 +31,6 @@ constexpr int32_t UT_ROBOT_TASK_UNKNOWN_ERROR = -2;
 constexpr int64_t MOTION_SWITCHER_API_ID_CHECK_MODE = 1001;
 constexpr int64_t MOTION_SWITCHER_API_ID_RELEASE_MODE = 1003;
 constexpr int MOTION_RELEASE_MAX_ATTEMPTS = 3;
-constexpr int JOY_DAMP_BUTTON = 4;
-constexpr int JOY_CONTROL_TOGGLE_BUTTON = 5;
-constexpr double NEUTRAL_DURATION_SECONDS = 3.0;
 constexpr uint8_t MODE_PR = 0;
 constexpr float NEUTRAL_LEG_KP = 100.0F;
 constexpr float NEUTRAL_UPPER_KP = 50.0F;
@@ -60,14 +57,6 @@ const std::array<std::string, G1_NUM_MOTOR> JOINT_NAMES = {
     "right_shoulder_yaw_joint", "right_elbow_joint",
     "right_wrist_roll_joint", "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
-};
-
-constexpr std::array<float, G1_NUM_MOTOR> DEFAULT_JOINT_POS = {
-    -0.1F, 0.0F, 0.0F, 0.3F, -0.2F, 0.0F,
-    -0.1F, 0.0F, 0.0F, 0.3F, -0.2F, 0.0F,
-    0.0F, 0.0F, 0.0F,
-    0.37F, 0.62F, 0.0F, 0.82F, 0.0F, 0.0F, 0.0F,
-    0.33F, -0.67F, 0.0F, 1.01F, 0.0F, 0.0F, 0.0F,
 };
 
 int64_t GetMonotonicNanoseconds() {
@@ -126,6 +115,7 @@ class G1BridgeNode : public rclcpp::Node {
  public:
   G1BridgeNode() : Node("g1_bridge_node") {
     const bool simulator = this->declare_parameter<bool>("simulator", false);
+    const bool mujoco = this->declare_parameter<bool>("mujoco", false);
     const bool wbc = this->declare_parameter<bool>("wbc", true);
     if (simulator) {
       RCLCPP_WARN(this->get_logger(),
@@ -163,7 +153,7 @@ class G1BridgeNode : public rclcpp::Node {
 
     joint_states_pub_ =
         this->create_publisher<sensor_msgs::msg::JointState>("/joint_states",
-                                                             sensor_qos);
+                                                              sensor_qos);
     imu_pub_ =
         this->create_publisher<sensor_msgs::msg::Imu>("/imu", sensor_qos);
     lowcmd_pub_ =
@@ -175,19 +165,21 @@ class G1BridgeNode : public rclcpp::Node {
         [this](const unitree_hg::msg::LowState::SharedPtr msg) {
           LowStateCallback(msg);
         });
-    joint_cmd_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-        "/joint_commands", sensor_qos,
+    safe_cmd_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
+        "/joint_commands_safe", sensor_qos,
         [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
-          JointCommandCallback(msg);
+          JointCommandSafeCallback(msg);
         });
-    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>(
-        "/joy", sensor_qos,
-        [this](const sensor_msgs::msg::Joy::SharedPtr msg) {
-          JoyCallback(msg);
-        });
+    orchestrator_state_sub_ =
+        this->create_subscription<std_msgs::msg::String>(
+            "/orchestrator/state",
+            rclcpp::QoS(1).transient_local(),
+            [this](const std_msgs::msg::String::SharedPtr msg) {
+              OrchestratorStateCallback(msg);
+            });
 
     republish_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(2), [this] { PublishOrchestratedLowCmd(); });
+        std::chrono::milliseconds(2), [this] { PublishLowCmd(); });
 
     RCLCPP_INFO(this->get_logger(), "G1 bridge node started");
   }
@@ -390,123 +382,35 @@ class G1BridgeNode : public rclcpp::Node {
     return true;
   }
 
-  static bool IsButtonPressed(const sensor_msgs::msg::Joy &msg,
-                              std::size_t index) {
-    return index < msg.buttons.size() && msg.buttons[index] != 0;
-  }
-
-  static double Clamp(double value, double low, double high) {
-    if (value < low) {
-      return low;
-    }
-    if (value > high) {
-      return high;
-    }
-    return value;
-  }
-
-  void StartNeutralRamp(const rclcpp::Time &now) {
-    neutral_start_positions_ = current_positions_;
-    neutral_start_time_ = now;
-    neutral_ramp_active_ = true;
-    state_ = OrchestratorState::kNeutral;
-  }
-
-  void JoyCallback(const sensor_msgs::msg::Joy::SharedPtr msg) {
-    const bool damp_pressed = IsButtonPressed(*msg, JOY_DAMP_BUTTON);
-    if (damp_pressed && state_ != OrchestratorState::kDamp) {
-      state_ = OrchestratorState::kDamp;
-      neutral_ramp_active_ = false;
-      RCLCPP_ERROR(this->get_logger(),
-                   "Joy button[%d] pressed - entering latched damp state",
-                   JOY_DAMP_BUTTON);
-      return;
-    }
-
-    if (state_ == OrchestratorState::kDamp) {
-      return;
-    }
-
-    const bool control_pressed =
-        IsButtonPressed(*msg, JOY_CONTROL_TOGGLE_BUTTON);
-    const bool control_rising_edge =
-        control_pressed && !last_control_button_pressed_;
-    last_control_button_pressed_ = control_pressed;
-
-    if (!control_rising_edge) {
-      return;
-    }
-
-    if (state_ == OrchestratorState::kControl) {
-      if (has_state_) {
-        StartNeutralRamp(this->get_clock()->now());
-      } else {
-        state_ = OrchestratorState::kNeutral;
-      }
-      RCLCPP_INFO(this->get_logger(), "Switching to neutral state");
-      return;
-    }
-
-    if (neutral_ramp_active_) {
-      RCLCPP_WARN(this->get_logger(),
-                  "Ignoring control toggle while neutral ramp is active");
-      return;
-    }
-
-    if (!has_latest_control_cmd_) {
-      RCLCPP_WARN(this->get_logger(),
-                  "Ignoring control toggle before any /joint_commands message");
-      return;
-    }
-
-    state_ = OrchestratorState::kControl;
-    RCLCPP_INFO(this->get_logger(), "Switching to control state");
-  }
-
-  void BuildNeutralCommand(unitree_hg::msg::LowCmd &cmd,
-                           const rclcpp::Time &now) {
-    double ratio = 1.0;
-    if (neutral_ramp_active_) {
-      ratio =
-          Clamp((now - neutral_start_time_).seconds() / NEUTRAL_DURATION_SECONDS,
-                0.0, 1.0);
-      if (ratio >= 1.0) {
-        neutral_ramp_active_ = false;
-      }
-    }
-
+  void BuildNeutralLowCmd(unitree_hg::msg::LowCmd &cmd) {
     cmd.mode_pr = MODE_PR;
     cmd.mode_machine = mode_machine_;
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       auto &motor_cmd = cmd.motor_cmd[i];
       motor_cmd.mode = 1;
-      motor_cmd.tau = 0.0F;
-      motor_cmd.q = neutral_ramp_active_
-                        ? static_cast<float>(
-                              (1.0 - ratio) * neutral_start_positions_[i] +
-                              ratio * DEFAULT_JOINT_POS[i])
-                        : DEFAULT_JOINT_POS[i];
+      motor_cmd.q = target_positions_[i];
       motor_cmd.dq = 0.0F;
+      motor_cmd.tau = 0.0F;
       motor_cmd.kp = (i < 13) ? NEUTRAL_LEG_KP : NEUTRAL_UPPER_KP;
       motor_cmd.kd = NEUTRAL_KD;
     }
   }
 
-  void BuildDampCommand(unitree_hg::msg::LowCmd &cmd) {
+  void BuildDampLowCmd(unitree_hg::msg::LowCmd &cmd) {
     cmd.mode_pr = MODE_PR;
     cmd.mode_machine = mode_machine_;
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       auto &motor_cmd = cmd.motor_cmd[i];
       motor_cmd.mode = 1;
-      motor_cmd.tau = 0.0F;
-      motor_cmd.q = current_positions_[i];
+      motor_cmd.q = target_positions_[i];
       motor_cmd.dq = 0.0F;
+      motor_cmd.tau = 0.0F;
       motor_cmd.kp = DAMP_KP;
       motor_cmd.kd = DAMP_KD;
     }
   }
 
-  void BuildControlCommand(unitree_hg::msg::LowCmd &cmd) {
+  void BuildControlLowCmd(unitree_hg::msg::LowCmd &cmd) {
     cmd.mode_pr = mode_pr_;
     cmd.mode_machine = mode_machine_;
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
@@ -521,7 +425,6 @@ class G1BridgeNode : public rclcpp::Node {
   }
 
   void LowStateCallback(const unitree_hg::msg::LowState::SharedPtr msg) {
-    const bool had_state = has_state_;
     mode_machine_ = msg->mode_machine;
     mode_pr_ = msg->mode_pr;
     has_state_ = true;
@@ -537,7 +440,6 @@ class G1BridgeNode : public rclcpp::Node {
 
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       const auto &motor = msg->motor_state[i];
-      current_positions_[i] = static_cast<float>(motor.q);
       joint_state.name.push_back(JOINT_NAMES[i]);
       joint_state.position.push_back(static_cast<double>(motor.q));
       joint_state.velocity.push_back(static_cast<double>(motor.dq));
@@ -559,28 +461,16 @@ class G1BridgeNode : public rclcpp::Node {
     imu.linear_acceleration.y = msg->imu_state.accelerometer[1];
     imu.linear_acceleration.z = msg->imu_state.accelerometer[2];
     imu_pub_->publish(imu);
-
-    if (!had_state) {
-      target_positions_ = current_positions_;
-      target_velocities_.fill(0.0F);
-      target_efforts_.fill(0.0F);
-      StartNeutralRamp(stamp);
-      RCLCPP_INFO(this->get_logger(),
-                  "Received first /lowstate - starting neutral ramp");
-    }
   }
 
-  void JointCommandCallback(
+  void JointCommandSafeCallback(
       const sensor_msgs::msg::JointState::SharedPtr msg) {
     if (!has_state_) {
       RCLCPP_WARN(this->get_logger(),
-                  "Received /joint_commands before any /lowstate - ignoring");
+                  "Received /joint_commands_safe before any /lowstate - ignoring");
       return;
     }
 
-    if (!has_latest_control_cmd_) {
-      target_positions_ = current_positions_;
-    }
     target_velocities_.fill(0.0F);
     target_efforts_.fill(0.0F);
 
@@ -591,7 +481,7 @@ class G1BridgeNode : public rclcpp::Node {
     for (std::size_t i = 0; i < msg->name.size(); ++i) {
       const auto it = joint_map_.find(msg->name[i]);
       if (it == joint_map_.end()) {
-        RCLCPP_WARN(this->get_logger(), "Unknown joint name in command: %s",
+        RCLCPP_WARN(this->get_logger(), "Unknown joint name in safe command: %s",
                     msg->name[i].c_str());
         continue;
       }
@@ -607,22 +497,42 @@ class G1BridgeNode : public rclcpp::Node {
       }
     }
 
-    has_latest_control_cmd_ = true;
+    has_latest_safe_cmd_ = true;
   }
 
-  void PublishOrchestratedLowCmd() {
-    if (!has_state_) {
+  void OrchestratorStateCallback(const std_msgs::msg::String::SharedPtr msg) {
+    OrchestratorState new_state = current_state_;
+    if (msg->data == "neutral") {
+      new_state = OrchestratorState::kNeutral;
+    } else if (msg->data == "control") {
+      new_state = OrchestratorState::kControl;
+    } else if (msg->data == "damp") {
+      new_state = OrchestratorState::kDamp;
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Unknown orchestrator state: %s",
+                  msg->data.c_str());
+      return;
+    }
+    if (new_state != current_state_) {
+      current_state_ = new_state;
+      RCLCPP_INFO(this->get_logger(), "Orchestrator state: %s",
+                  msg->data.c_str());
+    }
+  }
+
+  void PublishLowCmd() {
+    if (!has_state_ || !has_latest_safe_cmd_) {
       return;
     }
 
     unitree_hg::msg::LowCmd cmd;
-    if (state_ == OrchestratorState::kDamp) {
-      BuildDampCommand(cmd);
-    } else if (state_ == OrchestratorState::kControl &&
-               has_latest_control_cmd_) {
-      BuildControlCommand(cmd);
+    if (current_state_ == OrchestratorState::kDamp) {
+      BuildDampLowCmd(cmd);
+    } else if (current_state_ == OrchestratorState::kControl &&
+               has_latest_safe_cmd_) {
+      BuildControlLowCmd(cmd);
     } else {
-      BuildNeutralCommand(cmd, this->get_clock()->now());
+      BuildNeutralLowCmd(cmd);
     }
 
     get_crc(cmd);
@@ -633,27 +543,23 @@ class G1BridgeNode : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowcmd_pub_;
   rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowstate_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr safe_cmd_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr
+      orchestrator_state_sub_;
   rclcpp::TimerBase::SharedPtr republish_timer_;
   rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr
       motion_switch_request_pub_;
 
   std::unordered_map<std::string, std::size_t> joint_map_;
   std::array<PidGains, G1_NUM_MOTOR> gains_{};
-  std::array<float, G1_NUM_MOTOR> current_positions_{};
-  std::array<float, G1_NUM_MOTOR> neutral_start_positions_{};
   std::array<float, G1_NUM_MOTOR> target_positions_{};
   std::array<float, G1_NUM_MOTOR> target_velocities_{};
   std::array<float, G1_NUM_MOTOR> target_efforts_{};
-  rclcpp::Time neutral_start_time_{};
   uint8_t mode_machine_{};
   uint8_t mode_pr_{};
-  OrchestratorState state_{OrchestratorState::kNeutral};
+  OrchestratorState current_state_{OrchestratorState::kNeutral};
   bool has_state_{false};
-  bool has_latest_control_cmd_{false};
-  bool neutral_ramp_active_{false};
-  bool last_control_button_pressed_{false};
+  bool has_latest_safe_cmd_{false};
 };
 
 int main(int argc, char **argv) {

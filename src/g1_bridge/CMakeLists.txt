@@ -5,6 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(unitree_api REQUIRED)
 find_package(unitree_hg REQUIRED)
 
@@ -15,6 +16,9 @@ endif()
 add_executable(g1_bridge_node
   src/g1_bridge_node.cpp
   src/common/motor_crc_hg.cpp
+)
+add_executable(g1_orchestrator_node
+  src/g1_orchestrator_node.cpp
 )
 add_executable(joy_cmd_vel_node
   src/joy_cmd_vel_node.cpp
@@ -27,8 +31,14 @@ target_include_directories(g1_bridge_node PRIVATE
 ament_target_dependencies(g1_bridge_node
   rclcpp
   sensor_msgs
+  std_msgs
   unitree_api
   unitree_hg
+)
+ament_target_dependencies(g1_orchestrator_node
+  rclcpp
+  sensor_msgs
+  std_msgs
 )
 ament_target_dependencies(joy_cmd_vel_node
   geometry_msgs
@@ -42,6 +52,7 @@ install(DIRECTORY launch config rviz
 
 install(TARGETS
   g1_bridge_node
+  g1_orchestrator_node
   joy_cmd_vel_node
   DESTINATION lib/${PROJECT_NAME}
 )
