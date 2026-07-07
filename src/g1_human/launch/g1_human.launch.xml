@@ -1,9 +1,28 @@
 <launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="human_x" default="0.5"/>
+  <arg name="human_y" default="0.0"/>
+  <arg name="human_yaw" default="0.0"/>
+  <arg name="human_yaw_deg" default="0.0"/>
+
   <node pkg="g1_human" exec="g1_human_node" name="g1_human_node" output="screen">
     <param from="$(find-pkg-share g1_human)/config/human.yaml"/>
+    <param name="human_x" value="$(var human_x)"/>
+    <param name="human_y" value="$(var human_y)"/>
+    <param name="human_yaw" value="$(var human_yaw)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node pkg="g1_human" exec="human_control_gui" name="human_control_gui" output="screen">
+    <param name="default_x" value="$(var human_x)"/>
+    <param name="default_y" value="$(var human_y)"/>
+    <param name="default_yaw_deg" value="$(var human_yaw_deg)"/>
+    <param name="publish_joints_default" value="false"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
   <node pkg="g1_rl_deploy" exec="motion_playback" name="motion_playback" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
     <remap from="/joint_commands" to="/human/joint_commands"/>
   </node>
 </launch>

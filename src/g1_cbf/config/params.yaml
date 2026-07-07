@@ -2,7 +2,7 @@ g1_cbf_node:
   ros__parameters:
     dt: 0.01
     internal_margin_phi: 0.05  # [m], minimum clearance margin for self-collision
-    external_margin_phi: 0.5  # [m], minimum clearance margin for human-robot collision
+    external_margin_phi: 0.2  # [m], minimum clearance margin for human-robot collision
     internal_gamma: 4.0        # CBF gain for self-collision
     external_gamma: 1.0        # CBF gain for human-robot collision
     K: 10.0           # proportional speed gain

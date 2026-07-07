@@ -14,5 +14,10 @@ install(PROGRAMS
   RENAME g1_human_node
   DESTINATION lib/${PROJECT_NAME}
 )
+install(PROGRAMS
+  scripts/human_control_gui.py
+  RENAME human_control_gui
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 ament_package()

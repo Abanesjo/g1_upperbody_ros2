@@ -2,7 +2,7 @@
 """Human capsule collider publisher.
 
 Uses the same JAX FK as the CBF node to compute capsule endpoints,
-applies a fixed pelvis-to-pelvis transform, and publishes all collision
+applies a configurable world-frame human pelvis pose, and publishes all collision
 capsules as a CapsuleArray on /human/colliders.
 """
 
@@ -11,7 +11,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Pose2D
 from scipy.spatial.transform import Rotation as Rot
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Quaternion, Vector3
@@ -22,6 +22,12 @@ from g1_cbf.jax_kinematics import (
     N_BODIES, CONTROLLED_JOINTS, CONTROLLED_JOINT_DEFAULTS,
 )
 from g1_cbf_msg.msg import Capsule, CapsuleArray
+
+DEFAULT_HUMAN_X = 0.5
+DEFAULT_HUMAN_Y = 0.0
+DEFAULT_HUMAN_Z = 0.784202
+DEFAULT_HUMAN_YAW = 0.0
+WORLD_FRAME = 'world'
 
 SENSOR_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -36,12 +42,12 @@ class G1HumanNode(Node):
         super().__init__('g1_human_node')
 
         # Parameters
-        self.declare_parameter('human_x', 0.6)
-        self.declare_parameter('human_y', 0.0)
-        self.declare_parameter('human_z', 0.0)
+        self.declare_parameter('human_x', DEFAULT_HUMAN_X)
+        self.declare_parameter('human_y', DEFAULT_HUMAN_Y)
+        self.declare_parameter('human_z', DEFAULT_HUMAN_Z)
         self.declare_parameter('human_roll', 0.0)
         self.declare_parameter('human_pitch', 0.0)
-        self.declare_parameter('human_yaw', 3.14159)
+        self.declare_parameter('human_yaw', DEFAULT_HUMAN_YAW)
         self.declare_parameter('rate', 50.0)
         self.declare_parameter('publish_viz', False)
         self.declare_parameter('collision_geometry', 'capsules')
@@ -52,6 +58,14 @@ class G1HumanNode(Node):
         # Joint state: 11 CBF-controlled joints, default MJLab home pose.
         self.q_controlled = CONTROLLED_JOINT_DEFAULTS.copy()
         self.q_des = CONTROLLED_JOINT_DEFAULTS.copy()
+        self._human_pose = {
+            'x': float(self.get_parameter('human_x').value),
+            'y': float(self.get_parameter('human_y').value),
+            'z': float(self.get_parameter('human_z').value),
+            'roll': float(self.get_parameter('human_roll').value),
+            'pitch': float(self.get_parameter('human_pitch').value),
+            'yaw': float(self.get_parameter('human_yaw').value),
+        }
 
         # Publishers
         self.capsule_pub = self.create_publisher(
@@ -66,23 +80,28 @@ class G1HumanNode(Node):
             JointState, '/human/joint_commands',
             self._joint_cmd_cb, SENSOR_QOS,
         )
+        self.create_subscription(
+            Pose2D, '/human/pose_command',
+            self._pose_cmd_cb, 10,
+        )
 
         # Timer
         rate = self.get_parameter('rate').value
         self.create_timer(1.0 / rate, self._tick)
 
         self.get_logger().info(
-            f'g1_human_node ready — publishing at {rate:.0f} Hz'
+            f'g1_human_node ready — publishing world-frame human at '
+            f'{rate:.0f} Hz'
         )
 
-    def _get_pelvis_transform(self):
-        """Build rotation + translation from robot pelvis to human pelvis."""
-        tx = self.get_parameter('human_x').value
-        ty = self.get_parameter('human_y').value
-        tz = self.get_parameter('human_z').value
-        roll = self.get_parameter('human_roll').value
-        pitch = self.get_parameter('human_pitch').value
-        yaw = self.get_parameter('human_yaw').value
+    def _get_world_transform(self):
+        """Build rotation + translation from human pelvis to world."""
+        tx = self._human_pose['x']
+        ty = self._human_pose['y']
+        tz = self._human_pose['z']
+        roll = self._human_pose['roll']
+        pitch = self._human_pose['pitch']
+        yaw = self._human_pose['yaw']
 
         R = Rot.from_euler('xyz', [roll, pitch, yaw]).as_matrix()
         t = np.array([tx, ty, tz])
@@ -97,6 +116,12 @@ class G1HumanNode(Node):
                 q[i] = name_to_pos[jname]
         self.q_des = q
 
+    def _pose_cmd_cb(self, msg: Pose2D):
+        """Accept world-frame x/y/yaw commands for the human pelvis."""
+        self._human_pose['x'] = float(msg.x)
+        self._human_pose['y'] = float(msg.y)
+        self._human_pose['yaw'] = float(msg.theta)
+
     def _tick(self):
         q = self.q_des if self.q_des is not None else CONTROLLED_JOINT_DEFAULTS
 
@@ -105,13 +130,13 @@ class G1HumanNode(Node):
         half_lengths = np.asarray(HALF_LENGTHS)
         radius_scale = float(self.get_parameter('human_radius_scale').value)
 
-        R_base, t_base = self._get_pelvis_transform()
+        R_world, t_world = self._get_world_transform()
 
         # Build capsule message + viz data
         capsule_msg = CapsuleArray()
         stamp = self.get_clock().now().to_msg()
         capsule_msg.header.stamp = stamp
-        capsule_msg.header.frame_id = 'pelvis'
+        capsule_msg.header.frame_id = WORLD_FRAME
 
         # Thigh indices for extension
         THIGH_INDICES = {
@@ -153,8 +178,8 @@ class G1HumanNode(Node):
                     a_local, b_local, hl, r,
                 )
 
-            a_world = R_base @ a_local + t_base
-            b_world = R_base @ b_local + t_base
+            a_world = R_world @ a_local + t_world
+            b_world = R_world @ b_local + t_world
 
             capsule = Capsule()
             capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
@@ -187,8 +212,8 @@ class G1HumanNode(Node):
             # Shin top = thigh bottom, shin extends in bent direction
             shin_top = b_thigh
             shin_bottom = shin_top - 2.0 * max(0.0, shin_seg_half) * shin_dir
-            a_world = R_base @ shin_top + t_base
-            b_world = R_base @ shin_bottom + t_base
+            a_world = R_world @ shin_top + t_world
+            b_world = R_world @ shin_bottom + t_world
 
             capsule = Capsule()
             capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
@@ -271,7 +296,7 @@ class G1HumanNode(Node):
 
     def _make_marker(self, stamp, mid, marker_type, center, quat, sx, sy, sz):
         m = Marker()
-        m.header.frame_id = 'pelvis'
+        m.header.frame_id = WORLD_FRAME
         m.header.stamp = stamp
         m.ns = 'human_colliders'
         m.id = mid
@@ -293,7 +318,7 @@ class G1HumanNode(Node):
         prev = getattr(self, '_prev_n_markers', 0)
         for j in range(mid, prev):
             m = Marker()
-            m.header.frame_id = 'pelvis'
+            m.header.frame_id = WORLD_FRAME
             m.header.stamp = stamp
             m.ns = 'human_colliders'
             m.id = j

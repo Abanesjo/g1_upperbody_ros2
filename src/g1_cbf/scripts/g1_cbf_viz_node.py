@@ -11,6 +11,7 @@ os.environ.setdefault('JAX_PLATFORM_NAME', 'cpu')
 from builtin_interfaces.msg import Time
 import numpy as np
 import rclpy
+from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
@@ -18,6 +19,10 @@ from sensor_msgs.msg import JointState
 from g1_cbf.collider_viz import ColliderVisualizer
 from g1_cbf.jax_kinematics import CONTROLLED_JOINTS, LEG_JOINTS
 from g1_cbf_msg.msg import ActiveCollisionPairs, CapsuleArray
+
+PELVIS_HEIGHT = 0.784202
+WORLD_FRAME = 'world'
+PELVIS_FRAME = 'pelvis'
 
 
 SENSOR_QOS = QoSProfile(
@@ -42,6 +47,9 @@ class G1CBFVizNode(Node):
         self.q_ctrl = None
         self.q_legs = np.zeros(len(LEG_JOINTS))
         self._human_capsules = []
+        self._human_capsules_frame = PELVIS_FRAME
+        self._pelvis_position = None
+        self._pelvis_quat = None
         self._active_external_pairs = None
         self._active_internal_pairs = None
 
@@ -62,6 +70,9 @@ class G1CBFVizNode(Node):
         )
         self.create_subscription(
             CapsuleArray, '/human/colliders', self._human_cb, SENSOR_QOS,
+        )
+        self.create_subscription(
+            PoseStamped, '/pose/pelvis', self._pelvis_pose_cb, SENSOR_QOS,
         )
         self.create_subscription(
             ActiveCollisionPairs, '/cbf/active_collision_pairs',
@@ -103,6 +114,20 @@ class G1CBFVizNode(Node):
                 'radius': float(c.radius),
             })
         self._human_capsules = capsules
+        self._human_capsules_frame = self._normalize_frame(msg.header.frame_id)
+
+    def _pelvis_pose_cb(self, msg: PoseStamped):
+        self._pelvis_position = np.array([
+            msg.pose.position.x,
+            msg.pose.position.y,
+            msg.pose.position.z,
+        ], dtype=np.float64)
+        self._pelvis_quat = np.array([
+            msg.pose.orientation.x,
+            msg.pose.orientation.y,
+            msg.pose.orientation.z,
+            msg.pose.orientation.w,
+        ], dtype=np.float64)
 
     def _active_pairs_cb(self, msg: ActiveCollisionPairs):
         external_pairs = []
@@ -140,11 +165,86 @@ class G1CBFVizNode(Node):
             return
 
         stamp = Time()
+        human_capsules = self._human_capsules_for_viz()
         self.viz.publish(stamp, self.q_ctrl, self.q_legs)
         self.viz.publish_distances(
-            stamp, self.q_ctrl, self._human_capsules or None, self.q_legs,
+            stamp, self.q_ctrl, human_capsules or None, self.q_legs,
             self._active_external_pairs, self._active_internal_pairs,
         )
+
+    def _human_capsules_for_viz(self):
+        capsules = []
+        for capsule in self._human_capsules:
+            a, b = self._capsule_endpoints_in_pelvis(capsule)
+            capsules.append({
+                'a': a,
+                'b': b,
+                'radius': capsule['radius'],
+            })
+        return capsules
+
+    def _capsule_endpoints_in_pelvis(self, capsule):
+        frame = self._human_capsules_frame
+        a = capsule['a']
+        b = capsule['b']
+        if frame == WORLD_FRAME:
+            return (
+                self._world_to_pelvis(a),
+                self._world_to_pelvis(b),
+            )
+        if frame not in ('', PELVIS_FRAME):
+            self.get_logger().warn(
+                f"Unsupported /human/colliders frame '{frame}'; "
+                "treating capsules as pelvis-frame coordinates",
+                throttle_duration_sec=2.0,
+            )
+        return a, b
+
+    def _world_to_pelvis(self, point_world):
+        pelvis_position, pelvis_quat = self._pelvis_pose_or_default()
+        return self._quat_rotate_np(
+            self._quat_conjugate_np(pelvis_quat),
+            point_world - pelvis_position,
+        )
+
+    def _pelvis_pose_or_default(self):
+        if self._pelvis_position is None or self._pelvis_quat is None:
+            self.get_logger().warn(
+                '/human/colliders is in world frame, but /pose/pelvis has '
+                'not been received; using nominal pelvis pose for this tick',
+                throttle_duration_sec=2.0,
+            )
+            return (
+                np.array([0.0, 0.0, PELVIS_HEIGHT], dtype=np.float64),
+                np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64),
+            )
+        return self._pelvis_position, self._normalize_quat(self._pelvis_quat)
+
+    @staticmethod
+    def _normalize_frame(frame_id):
+        frame = (frame_id or PELVIS_FRAME).strip()
+        return frame[1:] if frame.startswith('/') else frame
+
+    @staticmethod
+    def _normalize_quat(q):
+        q = np.asarray(q, dtype=np.float64)
+        norm = np.linalg.norm(q)
+        if norm < 1e-9:
+            return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        return q / norm
+
+    @staticmethod
+    def _quat_conjugate_np(q):
+        q = G1CBFVizNode._normalize_quat(q)
+        return np.array([-q[0], -q[1], -q[2], q[3]], dtype=np.float64)
+
+    @staticmethod
+    def _quat_rotate_np(q, v):
+        q = G1CBFVizNode._normalize_quat(q)
+        xyz = q[:3]
+        w = q[3]
+        t = 2.0 * np.cross(xyz, v)
+        return v + w * t + np.cross(xyz, t)
 
 
 def main(args=None):
