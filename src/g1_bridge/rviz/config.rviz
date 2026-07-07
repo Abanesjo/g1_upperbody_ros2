@@ -798,7 +798,7 @@ Visualization Manager:
       Enabled: true
       Name: Marker
       Namespaces:
-        {}
+        pelvis_circle: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -947,25 +947,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/XYOrbit
-      Distance: 6.390333652496338
+      Distance: 3.1989457607269287
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.13336221873760223
-        Y: 0.06329916417598724
-        Z: 0
+        X: 0.14591169357299805
+        Y: -0.05913388729095459
+        Z: 1.5527427876804722e-06
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.029796820133924484
+      Pitch: 0.4647969603538513
       Target Frame: <Fixed Frame>
       Value: XYOrbit (rviz_default_plugins)
-      Yaw: 4.962392330169678
+      Yaw: 6.110572814941406
     Saved: ~
 Window Geometry:
   Displays:
@@ -985,5 +985,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1702
-  X: 308
-  Y: 95
+  X: 3015
+  Y: 202
