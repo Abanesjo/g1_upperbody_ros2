@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plays back a CSV motion file as /joint_commands for the 8 upper body joints."""
+"""Plays back a CSV motion file as /joint_commands for 11 upper body joints."""
 import csv
 import sys
 
@@ -12,13 +12,16 @@ from sensor_msgs.msg import JointState
 
 # Upper body joints: (name, motor_index)
 UPPER_BODY_JOINTS = [
+    ("waist_yaw_joint", 12),
     ("waist_roll_joint", 13),
     ("waist_pitch_joint", 14),
     ("left_shoulder_pitch_joint", 15),
     ("left_shoulder_roll_joint", 16),
+    ("left_shoulder_yaw_joint", 17),
     ("left_elbow_joint", 18),
     ("right_shoulder_pitch_joint", 22),
     ("right_shoulder_roll_joint", 23),
+    ("right_shoulder_yaw_joint", 24),
     ("right_elbow_joint", 25),
 ]
 

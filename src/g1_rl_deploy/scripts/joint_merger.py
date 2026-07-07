@@ -31,8 +31,8 @@ DEFAULT_POS = [
     -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,       # left leg
     -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,        # right leg
      0.0, 0.0, 0.0,                          # waist
-     0.35, 0.40, 0.0, 0.87, 0.0, 0.0, 0.0,  # left arm
-     0.35,-0.40, 0.0, 0.87, 0.0, 0.0, 0.0,  # right arm
+     0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,  # left arm
+     0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0,  # right arm
 ]
 
 NAME_TO_IDX = {name: i for i, name in enumerate(JOINT_NAMES)}

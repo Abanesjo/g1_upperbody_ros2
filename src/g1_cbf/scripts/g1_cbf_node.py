@@ -29,9 +29,11 @@ from g1_cbf.active_pairs import (
 from g1_cbf.cbf_config import G1CollisionCBFConfig
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
+    CONTROLLED_JOINT_DEFAULTS,
     LEG_JOINTS,
     N_BODIES,
     N_HUMAN_CAPSULES,
+    N_CONTROLLED_JOINTS,
     N_LEG_JOINTS,
     compute_sphere_counts,
 )
@@ -216,8 +218,8 @@ class G1CBFNode(Node):
 
         # Warmup call (JIT compilation)
         import time as _time
-        _z = jnp.zeros(8)
-        _u = jnp.zeros(8)
+        _z = jnp.zeros(N_CONTROLLED_JOINTS)
+        _u = jnp.zeros(N_CONTROLLED_JOINTS)
         _ql = jnp.zeros(N_LEG_JOINTS)
         _hc = jnp.zeros((N_HUMAN_CAPSULES, 7))
         _pairs = jnp.zeros((self._external_pair_slots, 2), dtype=jnp.int32)
@@ -244,7 +246,7 @@ class G1CBFNode(Node):
         )
 
         # State
-        self.q_ctrl = None   # (8,) current controlled joint positions
+        self.q_ctrl = None   # (N_CONTROLLED_JOINTS,) current controlled joint positions
         self.q_legs = np.zeros(N_LEG_JOINTS)  # (6,) current leg joint positions
         self.q_des_latest = None
         self.q_des_filtered = None
@@ -252,11 +254,6 @@ class G1CBFNode(Node):
         self._human_capsules = []
         self._pelvis_position = None
         self._pelvis_quat = None
-
-        # Passthrough state for non-controlled joints
-        self._passthrough_names = []
-        self._passthrough_positions = []
-        self._passthrough_ctrl_indices = {}
 
         # QoS: best-effort, volatile, depth 1
         sensor_qos = QoSProfile(
@@ -305,7 +302,7 @@ class G1CBFNode(Node):
 
     def _joint_states_cb(self, msg: JointState):
         name_to_pos = dict(zip(msg.name, msg.position))
-        q = np.zeros(8)
+        q = CONTROLLED_JOINT_DEFAULTS.copy()
         for i, jname in enumerate(CONTROLLED_JOINTS):
             if jname in name_to_pos:
                 q[i] = name_to_pos[jname]
@@ -318,29 +315,25 @@ class G1CBFNode(Node):
 
     def _unsafe_cmd_cb(self, msg: JointState):
         name_to_pos = dict(zip(msg.name, msg.position))
-        q = np.zeros(8)
-        missing = False
+        if self.q_des_latest is not None:
+            q = self.q_des_latest.copy()
+        elif self.q_ctrl is not None:
+            q = self.q_ctrl.copy()
+        else:
+            q = CONTROLLED_JOINT_DEFAULTS.copy()
+
+        updated = False
         for i, jname in enumerate(CONTROLLED_JOINTS):
-            if jname not in name_to_pos:
-                self.get_logger().warn(
-                    f'Joint {jname} missing from /joint_commands_unsafe',
-                    throttle_duration_sec=2.0,
-                )
-                missing = True
-                break
-            q[i] = name_to_pos[jname]
-        if missing:
+            if jname in name_to_pos:
+                q[i] = name_to_pos[jname]
+                updated = True
+        if not updated:
+            self.get_logger().warn(
+                '/joint_commands_unsafe contained no CBF-controlled joints',
+                throttle_duration_sec=2.0,
+            )
             return
         self.q_des_latest = q
-
-        # Store for passthrough
-        ctrl_set = set(CONTROLLED_JOINTS)
-        self._passthrough_names = list(msg.name)
-        self._passthrough_positions = list(msg.position)
-        self._passthrough_ctrl_indices = {
-            name: i for i, name in enumerate(msg.name)
-            if name in ctrl_set
-        }
 
     def _human_cb(self, msg: CapsuleArray):
         capsules = []
@@ -454,19 +447,9 @@ class G1CBFNode(Node):
             internal_clearances_jnp,
         )
 
-        if self._passthrough_names:
-            safe_msg.name = list(self._passthrough_names)
-            safe_msg.position = list(self._passthrough_positions)
-            safe_msg.velocity = [0.0] * len(self._passthrough_names)
-            for i, jname in enumerate(CONTROLLED_JOINTS):
-                if jname in self._passthrough_ctrl_indices:
-                    idx = self._passthrough_ctrl_indices[jname]
-                    safe_msg.position[idx] = float(self.q_cbf_target[i])
-                    safe_msg.velocity[idx] = float(dq_safe[i])
-        else:
-            safe_msg.name = list(CONTROLLED_JOINTS)
-            safe_msg.position = self.q_cbf_target.tolist()
-            safe_msg.velocity = dq_safe.tolist()
+        safe_msg.name = list(CONTROLLED_JOINTS)
+        safe_msg.position = self.q_cbf_target.tolist()
+        safe_msg.velocity = dq_safe.tolist()
 
         self.cmd_pub.publish(safe_msg)
 

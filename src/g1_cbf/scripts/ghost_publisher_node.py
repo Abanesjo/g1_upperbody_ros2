@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ghost robot publisher for visualizing unsafe commands.
 
-Subscribes to /joint_commands_unsafe (may be partial, e.g. 8 upper body joints)
+Subscribes to /joint_commands_unsafe (may be partial upper-body joints)
 and /joint_states (full 29 DOF feedback). Merges them so the ghost always has
 all 29 joints: unsafe values override the corresponding joints from feedback.
 """

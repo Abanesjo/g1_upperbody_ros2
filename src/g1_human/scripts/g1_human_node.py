@@ -19,7 +19,7 @@ from std_msgs.msg import ColorRGBA
 
 from g1_cbf.jax_kinematics import (
     capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII,
-    N_BODIES, CONTROLLED_JOINTS,
+    N_BODIES, CONTROLLED_JOINTS, CONTROLLED_JOINT_DEFAULTS,
 )
 from g1_cbf_msg.msg import Capsule, CapsuleArray
 
@@ -49,9 +49,9 @@ class G1HumanNode(Node):
         self.declare_parameter('sphere_radius_gain', 1.0)
         self.declare_parameter('human_radius_scale', 1.0)
 
-        # Joint state: 8 controlled joints, default neutral (zeros)
-        self.q_controlled = np.zeros(8)
-        self.q_des = None
+        # Joint state: 11 CBF-controlled joints, default MJLab home pose.
+        self.q_controlled = CONTROLLED_JOINT_DEFAULTS.copy()
+        self.q_des = CONTROLLED_JOINT_DEFAULTS.copy()
 
         # Publishers
         self.capsule_pub = self.create_publisher(
@@ -89,16 +89,16 @@ class G1HumanNode(Node):
         return R, t
 
     def _joint_cmd_cb(self, msg: JointState):
-        """Accept joint commands — extract the 8 controlled joints."""
+        """Accept joint commands and carry missing controlled joints."""
         name_to_pos = dict(zip(msg.name, msg.position))
-        q = np.zeros(8)
+        q = self.q_des.copy()
         for i, jname in enumerate(CONTROLLED_JOINTS):
             if jname in name_to_pos:
                 q[i] = name_to_pos[jname]
         self.q_des = q
 
     def _tick(self):
-        q = self.q_des if self.q_des is not None else np.zeros(8)
+        q = self.q_des if self.q_des is not None else CONTROLLED_JOINT_DEFAULTS
 
         # FK via JAX (returns numpy)
         a_all, b_all, radii = capsule_endpoints_np(q)

@@ -1,19 +1,22 @@
 """Pure JAX forward kinematics for G1 upper body collision capsules.
 
-Hardcodes the kinematic chain from the 29-DOF URDF, using only the 8
-controlled joints. All functions are JIT-compatible (pure jnp, no side
-effects). Uncontrolled joints (waist_yaw, shoulder_yaw, all leg joints)
-are fixed at zero (neutral).
+Hardcodes the kinematic chain from the 29-DOF URDF, using the 11
+CBF-controlled non-wrist upper-body joints. All functions are JIT-compatible
+(pure jnp, no side effects). Wrist joints and all leg joints are fixed at zero
+(neutral) in the upper-body collision chain.
 
-Joint index mapping for q (8,):
-  0: waist_roll
-  1: waist_pitch
-  2: left_shoulder_pitch
-  3: left_shoulder_roll
-  4: left_elbow
-  5: right_shoulder_pitch
-  6: right_shoulder_roll
-  7: right_elbow
+Joint index mapping for q (11,):
+  0: waist_yaw
+  1: waist_roll
+  2: waist_pitch
+  3: left_shoulder_pitch
+  4: left_shoulder_roll
+  5: left_shoulder_yaw
+  6: left_elbow
+  7: right_shoulder_pitch
+  8: right_shoulder_roll
+  9: right_shoulder_yaw
+ 10: right_elbow
 """
 
 import numpy as np
@@ -109,37 +112,37 @@ _R_CAPSULE_Z_TO_ARM_X = np.array([
     [-1.0, 0.0, 0.0],
 ])
 
-# pelvis → waist_yaw_joint (uncontrolled, q=0, axis=Z)
+# pelvis → waist_yaw_joint (q[0], axis=Z)
 # origin: xyz="0 0 0" rpy="0 0 0"
 _T_PELVIS_TO_WAIST_YAW = jnp.array(_np_T(_I3, [0.0, 0.0, 0.0]))
 
-# waist_yaw_link → waist_roll_joint (q[0], axis=X)
+# waist_yaw_link → waist_roll_joint (q[1], axis=X)
 # origin: xyz="-0.0039635 0 0.035" rpy="0 0 0"
 _T_WAIST_YAW_TO_ROLL = jnp.array(_np_T(_I3, [-0.0039635, 0.0, 0.035]))
 
-# waist_roll_link → waist_pitch_joint (q[1], axis=Y)
+# waist_roll_link → waist_pitch_joint (q[2], axis=Y)
 # origin: xyz="0 0 0.019" rpy="0 0 0"
 _T_ROLL_TO_PITCH = jnp.array(_np_T(_I3, [0.0, 0.0, 0.019]))
 
-# torso_link → left_shoulder_pitch_joint (q[2], axis=Y)
+# torso_link → left_shoulder_pitch_joint (q[3], axis=Y)
 # origin: xyz="0.0039563 0.10022 0.23778" rpy="0.27931 5.49E-05 -0.00019159"
 _T_TORSO_TO_L_PITCH = jnp.array(_np_T(
     _np_rpy(0.27931, 5.49e-05, -0.00019159),
     [0.0039563, 0.10022, 0.23778],
 ))
 
-# left_shoulder_pitch_link → left_shoulder_roll_joint (q[3], axis=X)
+# left_shoulder_pitch_link → left_shoulder_roll_joint (q[4], axis=X)
 # origin: xyz="0 0.038 -0.013831" rpy="-0.27925 0 0"
 _T_L_PITCH_TO_L_ROLL = jnp.array(_np_T(
     _np_rpy(-0.27925, 0.0, 0.0),
     [0.0, 0.038, -0.013831],
 ))
 
-# left_shoulder_roll_link → left_shoulder_yaw_joint (uncontrolled, q=0, axis=Z)
+# left_shoulder_roll_link → left_shoulder_yaw_joint (q[5], axis=Z)
 # origin: xyz="0 0.00624 -0.1032"
 _T_L_ROLL_TO_L_YAW = jnp.array(_np_T(_I3, [0.0, 0.00624, -0.1032]))
 
-# left_shoulder_yaw_link → left_elbow_joint (q[4], axis=Y)
+# left_shoulder_yaw_link → left_elbow_joint (q[6], axis=Y)
 # origin: xyz="0.015783 0 -0.080518"
 _T_L_YAW_TO_L_ELBOW = jnp.array(_np_T(_I3, [0.015783, 0.0, -0.080518]))
 
@@ -156,25 +159,25 @@ _T_L_WRIST_YAW_TO_HAND_BASE = jnp.array(_np_T(
     [0.15, 0.0, 0.0],
 ))
 
-# torso_link → right_shoulder_pitch_joint (q[5], axis=Y)
+# torso_link → right_shoulder_pitch_joint (q[7], axis=Y)
 # origin: xyz="0.0039563 -0.10021 0.23778" rpy="-0.27931 5.49E-05 0.00019159"
 _T_TORSO_TO_R_PITCH = jnp.array(_np_T(
     _np_rpy(-0.27931, 5.49e-05, 0.00019159),
     [0.0039563, -0.10021, 0.23778],
 ))
 
-# right_shoulder_pitch_link → right_shoulder_roll_joint (q[6], axis=X)
+# right_shoulder_pitch_link → right_shoulder_roll_joint (q[8], axis=X)
 # origin: xyz="0 -0.038 -0.013831" rpy="0.27925 0 0"
 _T_R_PITCH_TO_R_ROLL = jnp.array(_np_T(
     _np_rpy(0.27925, 0.0, 0.0),
     [0.0, -0.038, -0.013831],
 ))
 
-# right_shoulder_roll_link → right_shoulder_yaw_joint (uncontrolled, q=0, axis=Z)
+# right_shoulder_roll_link → right_shoulder_yaw_joint (q[9], axis=Z)
 # origin: xyz="0 -0.00624 -0.1032"
 _T_R_ROLL_TO_R_YAW = jnp.array(_np_T(_I3, [0.0, -0.00624, -0.1032]))
 
-# right_shoulder_yaw_link → right_elbow_joint (q[7], axis=Y)
+# right_shoulder_yaw_link → right_elbow_joint (q[10], axis=Y)
 # origin: xyz="0.015783 0 -0.080518"
 _T_R_YAW_TO_R_ELBOW = jnp.array(_np_T(_I3, [0.015783, 0.0, -0.080518]))
 
@@ -277,17 +280,36 @@ COLLISION_PAIR_INDICES = [
 ]
 N_SELF_PAIRS = len(COLLISION_PAIR_INDICES)
 
-# Controlled joint names (for ROS2 message parsing)
+# CBF-controlled joint names (for ROS2 message parsing), in MJLab upper-body
+# command order with wrists omitted.
 CONTROLLED_JOINTS = [
+    'waist_yaw_joint',
     'waist_roll_joint',
     'waist_pitch_joint',
     'left_shoulder_pitch_joint',
     'left_shoulder_roll_joint',
+    'left_shoulder_yaw_joint',
     'left_elbow_joint',
     'right_shoulder_pitch_joint',
     'right_shoulder_roll_joint',
+    'right_shoulder_yaw_joint',
     'right_elbow_joint',
 ]
+N_CONTROLLED_JOINTS = len(CONTROLLED_JOINTS)
+
+CONTROLLED_JOINT_DEFAULTS = np.array([
+    0.0,   # waist_yaw
+    0.0,   # waist_roll
+    0.0,   # waist_pitch
+    0.35,  # left_shoulder_pitch
+    0.18,  # left_shoulder_roll
+    0.0,   # left_shoulder_yaw
+    0.87,  # left_elbow
+    0.35,  # right_shoulder_pitch
+    -0.18, # right_shoulder_roll
+    0.0,   # right_shoulder_yaw
+    0.87,  # right_elbow
+], dtype=np.float64)
 
 # Leg joint names (for extracting from /joint_states)
 LEG_JOINTS = [
@@ -312,33 +334,33 @@ def fk_body_transforms(q, q_legs):
     """Compute 4x4 world-frame transforms for each collision body's offset frame.
 
     Args:
-        q: (8,) controlled joint positions.
+        q: (11,) controlled joint positions.
         q_legs: (6,) leg joint positions [L_hip_pitch, L_hip_roll, L_hip_yaw,
                 R_hip_pitch, R_hip_roll, R_hip_yaw].
 
     Returns:
         Tuple of transforms (4x4 each), ordered per BODY_NAMES.
     """
-    # Waist chain: pelvis → waist_yaw(0) → waist_roll(q0) → waist_pitch(q1) → torso
+    # Waist chain: pelvis → waist_yaw(q0) → waist_roll(q1) → waist_pitch(q2) → torso
     T = _T_PELVIS_TO_WAIST_YAW  # waist_yaw origin (identity)
-    # waist_yaw is uncontrolled (fixed at 0), so rot_z(0) = I — skip
+    T = _joint_T_z(T, q[0])     # waist_yaw
     T = T @ _T_WAIST_YAW_TO_ROLL
-    T = _joint_T_x(T, q[0])     # waist_roll
+    T = _joint_T_x(T, q[1])     # waist_roll
     T = T @ _T_ROLL_TO_PITCH
-    T_torso_frame = _joint_T_y(T, q[1])  # waist_pitch → torso_link
+    T_torso_frame = _joint_T_y(T, q[2])  # waist_pitch → torso_link
     T_torso = T_torso_frame @ _OFFSET_TORSO
 
-    # Left arm chain: torso → L_shoulder_pitch(q2) → L_shoulder_roll(q3) → L_shoulder_yaw(0) → L_elbow(q4)
+    # Left arm chain: torso → L_shoulder_pitch(q3) → L_shoulder_roll(q4) → L_shoulder_yaw(q5) → L_elbow(q6)
     T = T_torso_frame @ _T_TORSO_TO_L_PITCH
-    T = _joint_T_y(T, q[2])     # left_shoulder_pitch
+    T = _joint_T_y(T, q[3])     # left_shoulder_pitch
     T = T @ _T_L_PITCH_TO_L_ROLL
-    T_l_shoulder_frame = _joint_T_x(T, q[3])  # left_shoulder_roll → left_shoulder_roll_link
+    T_l_shoulder_frame = _joint_T_x(T, q[4])  # left_shoulder_roll → left_shoulder_roll_link
     T_l_shoulder = T_l_shoulder_frame @ _OFFSET_L_SHOULDER
 
     T = T_l_shoulder_frame @ _T_L_ROLL_TO_L_YAW
-    # left_shoulder_yaw uncontrolled (fixed at 0) — skip rot_z(0)
+    T = _joint_T_z(T, q[5])     # left_shoulder_yaw
     T = T @ _T_L_YAW_TO_L_ELBOW
-    T_l_elbow_frame = _joint_T_y(T, q[4])  # left_elbow → left_elbow_link
+    T_l_elbow_frame = _joint_T_y(T, q[6])  # left_elbow → left_elbow_link
     T_l_arm = T_l_elbow_frame @ _OFFSET_L_ARM
     T = T_l_elbow_frame @ _T_L_ELBOW_TO_WRIST_ROLL
     # left wrist roll/pitch/yaw are fixed at neutral for CBF geometry.
@@ -346,17 +368,17 @@ def fk_body_transforms(q, q_legs):
     T = T @ _T_L_WRIST_PITCH_TO_YAW
     T_l_hand = T @ _T_L_WRIST_YAW_TO_HAND_BASE
 
-    # Right arm chain: torso → R_shoulder_pitch(q5) → R_shoulder_roll(q6) → R_shoulder_yaw(0) → R_elbow(q7)
+    # Right arm chain: torso → R_shoulder_pitch(q7) → R_shoulder_roll(q8) → R_shoulder_yaw(q9) → R_elbow(q10)
     T = T_torso_frame @ _T_TORSO_TO_R_PITCH
-    T = _joint_T_y(T, q[5])     # right_shoulder_pitch
+    T = _joint_T_y(T, q[7])     # right_shoulder_pitch
     T = T @ _T_R_PITCH_TO_R_ROLL
-    T_r_shoulder_frame = _joint_T_x(T, q[6])  # right_shoulder_roll → right_shoulder_roll_link
+    T_r_shoulder_frame = _joint_T_x(T, q[8])  # right_shoulder_roll → right_shoulder_roll_link
     T_r_shoulder = T_r_shoulder_frame @ _OFFSET_R_SHOULDER
 
     T = T_r_shoulder_frame @ _T_R_ROLL_TO_R_YAW
-    # right_shoulder_yaw uncontrolled — skip
+    T = _joint_T_z(T, q[9])     # right_shoulder_yaw
     T = T @ _T_R_YAW_TO_R_ELBOW
-    T_r_elbow_frame = _joint_T_y(T, q[7])  # right_elbow → right_elbow_link
+    T_r_elbow_frame = _joint_T_y(T, q[10])  # right_elbow → right_elbow_link
     T_r_arm = T_r_elbow_frame @ _OFFSET_R_ARM
     T = T_r_elbow_frame @ _T_R_ELBOW_TO_WRIST_ROLL
     # right wrist roll/pitch/yaw are fixed at neutral for CBF geometry.
@@ -392,7 +414,7 @@ def capsule_endpoints_all(q, q_legs=None):
     """Compute all capsule endpoints in the pelvis frame.
 
     Args:
-        q: (8,) controlled joint positions.
+        q: (11,) controlled joint positions.
         q_legs: (6,) leg joint positions, or None for zeros (neutral).
 
     Returns:
@@ -419,7 +441,7 @@ def capsule_endpoints_np(q_np, q_legs_np=None):
     """Numpy convenience wrapper for visualization (outside JIT path).
 
     Args:
-        q_np: (8,) numpy array of controlled joint positions.
+        q_np: (11,) numpy array of controlled joint positions.
         q_legs_np: (6,) numpy array of leg joint positions, or None for zeros.
 
     Returns:

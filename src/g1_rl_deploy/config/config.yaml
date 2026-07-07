@@ -7,22 +7,23 @@
 #  4  left_ankle_pitch       10  right_ankle_pitch
 #  5  left_ankle_roll        11  right_ankle_roll
 #
-# 12  waist_yaw
-# 13  waist_roll           U
-# 14  waist_pitch          U
+# 12  waist_yaw            C
+# 13  waist_roll           C
+# 14  waist_pitch          C
 #
-# 15  left_shoulder_pitch  U  22  right_shoulder_pitch  U
-# 16  left_shoulder_roll   U  23  right_shoulder_roll   U
-# 17  left_shoulder_yaw        24  right_shoulder_yaw
-# 18  left_elbow           U  25  right_elbow           U
-# 19  left_wrist_roll          26  right_wrist_roll
-# 20  left_wrist_pitch         27  right_wrist_pitch
-# 21  left_wrist_yaw           28  right_wrist_yaw
+# 15  left_shoulder_pitch  C  22  right_shoulder_pitch  C
+# 16  left_shoulder_roll   C  23  right_shoulder_roll   C
+# 17  left_shoulder_yaw    C  24  right_shoulder_yaw    C
+# 18  left_elbow           C  25  right_elbow           C
+# 19  left_wrist_roll      P  26  right_wrist_roll      P
+# 20  left_wrist_pitch     P  27  right_wrist_pitch     P
+# 21  left_wrist_yaw       P  28  right_wrist_yaw       P
 #
 # The policy still outputs 29 actions, but g1_rl_deploy_node overrides
-# waist_roll/waist_pitch and the U-marked arm joints with CBF-filtered PD
-# targets from /upper_body_targets. waist_yaw is held at its default PD target.
-# U = upper body (8) — CBF-filtered targets fed as observation and commands
+# C-marked non-wrist joints with CBF-filtered PD targets from
+# /upper_body_targets when wbc=false. All 17 upper-body targets, including
+# P-marked policy-owned wrists, are fed as observations in MJLab order.
+# C = CBF/manual controlled (11), P = policy controlled but observed.
 
 g1_rl_deploy_node:
   ros__parameters:
@@ -40,17 +41,16 @@ g1_rl_deploy_node:
       lin_vel_y: [-0.5, 0.5]
       ang_vel_z: [-1.0, 1.0]
 
-    # Default joint positions (home pose) — all 29 DOF
+    # Default joint positions (MJLab home pose) — all 29 DOF
     default_joint_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,     # left leg
                         -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,      # right leg
                          0.0, 0.0, 0.0,                        # waist
-                         0.35, 0.40, 0.0, 0.87, 0.0, 0.0, 0.0, # left arm
-                         0.35,-0.40, 0.0, 0.87, 0.0, 0.0, 0.0] # right arm
+                         0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0, # left arm
+                         0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0] # right arm
 
-    # Per-joint action scale for the 29-output policy. Waist targets are
-    # overridden in the deploy node before publishing /joint_commands.
-    action_scale: [0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # left leg
-                   0.5475, 0.3507, 0.5475, 0.3507, 0.4386, 0.4386,   # right leg
-                   0.5475, 0.4386, 0.4386,                             # waist
-                   0.4386, 0.4386, 0.4386, 0.4386, 0.4386, 0.0745, 0.0745, # left arm
-                   0.4386, 0.4386, 0.4386, 0.4386, 0.4386, 0.0745, 0.0745] # right arm
+    # Per-joint action scale for the 29-output MJLab policy.
+    action_scale: [0.5475464630, 0.3506614664, 0.5475464630, 0.3506614664, 0.4385773139, 0.4385773139,   # left leg
+                   0.5475464630, 0.3506614664, 0.5475464630, 0.3506614664, 0.4385773139, 0.4385773139,   # right leg
+                   0.5475464630, 0.2500000000, 0.2500000000,                                             # waist
+                   0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.0745008703, 0.0745008703, # left arm
+                   0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.0745008703, 0.0745008703] # right arm

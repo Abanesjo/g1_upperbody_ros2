@@ -4,8 +4,8 @@ Supports two collision geometry modes:
 - capsules: dpax line-segment proximity (default)
 - spheres: analytical sphere-sphere distance
 
-State z = (8,) controlled joint positions.
-Control u = (8,) joint velocities.
+State z = (11,) controlled joint positions.
+Control u = (11,) joint velocities.
 Dynamics: z_dot = u  (f=0, g=I, relative degree 1).
 """
 
@@ -24,6 +24,7 @@ from g1_cbf.jax_kinematics import (
     N_BODIES,
     N_HUMAN_CAPSULES,
     N_LEG_JOINTS,
+    N_CONTROLLED_JOINTS,
     HEAD_COLLIDER_BODY_INDEX,
     RADII,
 )
@@ -122,10 +123,10 @@ class G1CollisionCBFConfig(CBFConfig):
         dummy_head_circle_enabled = jnp.array(False)
 
         super().__init__(
-            n=8,
-            m=8,
-            u_min=-max_velocity * jnp.ones(8),
-            u_max=max_velocity * jnp.ones(8),
+            n=N_CONTROLLED_JOINTS,
+            m=N_CONTROLLED_JOINTS,
+            u_min=-max_velocity * jnp.ones(N_CONTROLLED_JOINTS),
+            u_max=max_velocity * jnp.ones(N_CONTROLLED_JOINTS),
             relax_qp=True,
             cbf_relaxation_penalty=1e4,
             solver_tol=solver_tol,
@@ -145,10 +146,10 @@ class G1CollisionCBFConfig(CBFConfig):
         )
 
     def f(self, z, *args, **kwargs):
-        return jnp.zeros(8)
+        return jnp.zeros(N_CONTROLLED_JOINTS)
 
     def g(self, z, *args, **kwargs):
-        return jnp.eye(8)
+        return jnp.eye(N_CONTROLLED_JOINTS)
 
     def h_1(self, z, q_legs, human_capsules, active_pair_indices,
             active_pair_mask, active_internal_indices, active_internal_mask,

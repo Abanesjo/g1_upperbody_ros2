@@ -18,19 +18,22 @@ except ImportError:
 
 # Joint definitions: (name, index_in_29dof, min_rad, max_rad, default_rad)
 JOINTS = {
+    "Waist": [
+        ("waist_yaw_joint",   12, -2.094, 2.094, 0.0),
+        ("waist_roll_joint",  13, -0.416, 0.416, 0.0),
+        ("waist_pitch_joint", 14, -0.416, 0.416, 0.0),
+    ],
     "Left Arm": [
-        ("left_shoulder_pitch_joint", 15, -2.0, 2.0, 0.35),
-        ("left_shoulder_roll_joint",  16, -1.0, 1.8, 0.40),
-        ("left_elbow_joint",          18, -0.8, 1.7, 0.87),
+        ("left_shoulder_pitch_joint", 15, -2.471, 2.136, 0.35),
+        ("left_shoulder_roll_joint",  16, -1.271, 1.801, 0.18),
+        ("left_shoulder_yaw_joint",   17, -2.094, 2.094, 0.0),
+        ("left_elbow_joint",          18, -0.838, 1.676, 0.87),
     ],
     "Right Arm": [
-        ("right_shoulder_pitch_joint", 22, -2.0, 2.0, 0.35),
-        ("right_shoulder_roll_joint",  23, -1.8, 1.0, -0.40),
-        ("right_elbow_joint",          25, -0.8, 1.7, 0.87),
-    ],
-    "Waist": [
-        ("waist_roll_joint",  13, -0.4, 0.4, 0.0),
-        ("waist_pitch_joint", 14, -0.4, 0.4, 0.0),
+        ("right_shoulder_pitch_joint", 22, -2.471, 2.136, 0.35),
+        ("right_shoulder_roll_joint",  23, -1.801, 1.271, -0.18),
+        ("right_shoulder_yaw_joint",   24, -2.094, 2.094, 0.0),
+        ("right_elbow_joint",          25, -0.838, 1.676, 0.87),
     ],
 }
 

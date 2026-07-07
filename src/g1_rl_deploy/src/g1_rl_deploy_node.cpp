@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -15,9 +16,9 @@
 
 static constexpr int NUM_MOTOR = 29;
 static constexpr int NUM_ACTION = 29;  // policy model output dimension
-static constexpr int NUM_UPPER_BODY_CMD = 8;  // upper body command targets
-static constexpr int OBS_DIM = 106;  // 3+3+3+2+29+29+29+8
-static constexpr int WAIST_YAW_INDEX = 12;
+static constexpr int NUM_UPPER_BODY_CMD = 17;  // MJLab upper-body command targets
+static constexpr int NUM_CBF_CONTROLLED = 11;  // non-wrist targets overridden by CBF/PD
+static constexpr int OBS_DIM = 115;  // 3+3+3+2+29+29+29+17
 
 // All 29 joint names in motor index order
 static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
@@ -32,9 +33,19 @@ static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
     "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
 };
 
-// Upper body controlled joint names (CBF-filtered targets fed as observation)
+// Upper body command target order from MJLab training: waist 12-14,
+// left upper body 15-21, right upper body 22-28.
 static constexpr int UPPER_BODY_INDICES[NUM_UPPER_BODY_CMD] = {
-    13, 14, 15, 16, 18, 22, 23, 25  // waist_roll, waist_pitch, L/R shoulder pitch/roll, L/R elbow
+    12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21,
+    22, 23, 24, 25, 26, 27, 28
+};
+
+// CBF/manual authority covers non-wrist upper body joints only.
+static constexpr int CBF_CONTROLLED_INDICES[NUM_CBF_CONTROLLED] = {
+    12, 13, 14,
+    15, 16, 17, 18,
+    22, 23, 24, 25
 };
 
 // ---------------------------------------------------------------------------
@@ -46,24 +57,42 @@ public:
         : env_(ORT_LOGGING_LEVEL_WARNING, "g1_policy") {
         session_options_.SetGraphOptimizationLevel(ORT_ENABLE_EXTENDED);
         session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), session_options_);
+        if (session_->GetInputCount() != 1) {
+            throw std::runtime_error("expected ONNX policy to have exactly one input");
+        }
         for (size_t i = 0; i < session_->GetInputCount(); ++i) {
             auto type_info = session_->GetInputTypeInfo(i);
             input_shapes_.push_back(type_info.GetTensorTypeAndShapeInfo().GetShape());
             auto name = session_->GetInputNameAllocated(i, allocator_);
             input_name_strs_.push_back(name.get());
-            size_t size = 1;
-            for (auto dim : input_shapes_.back()) size *= dim;
+            size_t size = ShapeElementCount(input_shapes_.back(), "input");
+            if (size != OBS_DIM) {
+                throw std::runtime_error(
+                    "expected ONNX policy input size " + std::to_string(OBS_DIM) +
+                    ", got " + std::to_string(size));
+            }
             input_sizes_.push_back(size);
         }
         for (auto& s : input_name_strs_) input_names_.push_back(s.c_str());
         auto out_type = session_->GetOutputTypeInfo(0);
         output_shape_ = out_type.GetTensorTypeAndShapeInfo().GetShape();
+        output_size_ = ShapeElementCount(output_shape_, "output");
+        if (output_size_ != NUM_ACTION) {
+            throw std::runtime_error(
+                "expected ONNX policy output size " + std::to_string(NUM_ACTION) +
+                ", got " + std::to_string(output_size_));
+        }
         auto out_name = session_->GetOutputNameAllocated(0, allocator_);
         output_name_str_ = out_name.get();
         output_name_ = output_name_str_.c_str();
     }
 
     std::vector<float> infer(std::vector<float>& obs) {
+        if (obs.size() != input_sizes_[0]) {
+            throw std::runtime_error(
+                "expected observation size " + std::to_string(input_sizes_[0]) +
+                ", got " + std::to_string(obs.size()));
+        }
         auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
         std::vector<Ort::Value> input_tensors;
         for (size_t i = 0; i < input_names_.size(); ++i) {
@@ -77,10 +106,26 @@ public:
             input_names_.data(), input_tensors.data(), input_tensors.size(),
             &output_name_, 1);
         auto* floatarr = output_tensors.front().GetTensorMutableData<float>();
-        return std::vector<float>(floatarr, floatarr + output_shape_[1]);
+        return std::vector<float>(floatarr, floatarr + output_size_);
     }
 
 private:
+    static size_t ShapeElementCount(
+        const std::vector<int64_t>& shape, const std::string& label) {
+        if (shape.empty()) {
+            throw std::runtime_error("ONNX " + label + " shape is empty");
+        }
+        size_t size = 1;
+        for (const auto dim : shape) {
+            if (dim <= 0) {
+                throw std::runtime_error(
+                    "ONNX " + label + " shape must be static for deployment");
+            }
+            size *= static_cast<size_t>(dim);
+        }
+        return size;
+    }
+
     Ort::Env env_;
     Ort::SessionOptions session_options_;
     std::unique_ptr<Ort::Session> session_;
@@ -92,6 +137,7 @@ private:
     std::string output_name_str_;
     const char* output_name_;
     std::vector<int64_t> output_shape_;
+    size_t output_size_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -114,8 +160,8 @@ public:
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z", {-1.0, 1.0});
         this->declare_parameter<std::vector<double>>("default_joint_pos", std::vector<double>{
             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
-             0.0, 0.0, 0.0, 0.35, 0.40, 0.0, 0.87, 0.0, 0.0, 0.0,
-             0.35,-0.40, 0.0, 0.87, 0.0, 0.0, 0.0});
+             0.0, 0.0, 0.0, 0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
+             0.35,-0.18, 0.0, 0.87, 0.0, 0.0, 0.0});
         // Action scale for all 29 joints
         this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>(NUM_ACTION, 0.44));
 
@@ -127,6 +173,16 @@ public:
         wbc_ = this->get_parameter("wbc").as_bool();
         default_pos_ = this->get_parameter("default_joint_pos").as_double_array();
         action_scale_ = this->get_parameter("action_scale").as_double_array();
+        if (default_pos_.size() != NUM_MOTOR) {
+            throw std::runtime_error(
+                "default_joint_pos must contain " + std::to_string(NUM_MOTOR) +
+                " values");
+        }
+        if (action_scale_.size() != NUM_ACTION) {
+            throw std::runtime_error(
+                "action_scale must contain " + std::to_string(NUM_ACTION) +
+                " values");
+        }
 
         auto lim_x = this->get_parameter("cmd_vel_limits.lin_vel_x").as_double_array();
         auto lim_y = this->get_parameter("cmd_vel_limits.lin_vel_y").as_double_array();
@@ -250,7 +306,7 @@ private:
                     wbc_ ? "policy" : "PD targets");
             }
 
-            // Build observation (106 dims)
+            // Build observation (115 dims)
             std::vector<float> obs;
             obs.reserve(OBS_DIM);
 
@@ -284,7 +340,7 @@ private:
             for (int i = 0; i < NUM_ACTION; ++i)
                 obs.push_back(last_action_[i]);
 
-            // 8. upper_body_command (8) — CBF-filtered targets
+            // 8. upper_body_command (17) — MJLab-order targets
             for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
                 obs.push_back(upper_body_cmd_[i]);
 
@@ -300,14 +356,11 @@ private:
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
             if (!wbc_) {
-                // Waist authority is through PD position targets, not policy actions.
-                // Yaw has no upper-body target stream, so hold its configured default.
-                cmd.position[WAIST_YAW_INDEX] = default_pos_[WAIST_YAW_INDEX];
-
-                // Override all CBF-filtered upper-body targets directly, including
-                // waist_roll and waist_pitch.
-                for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i)
-                    cmd.position[UPPER_BODY_INDICES[i]] = upper_body_cmd_[i];
+                // Override non-wrist CBF/manual upper-body targets directly.
+                for (int i = 0; i < NUM_CBF_CONTROLLED; ++i) {
+                    const int motor_idx = CBF_CONTROLLED_INDICES[i];
+                    cmd.position[motor_idx] = upper_body_cmd_[motor_idx - 12];
+                }
             }
 
             static int print_counter = 0;
