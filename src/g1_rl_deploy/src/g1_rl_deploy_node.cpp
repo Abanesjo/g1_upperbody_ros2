@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -19,6 +20,33 @@ static constexpr int NUM_ACTION = 29;  // policy model output dimension
 static constexpr int NUM_UPPER_BODY_CMD = 17;  // MJLab upper-body command targets
 static constexpr int NUM_CBF_CONTROLLED = 11;  // non-wrist targets overridden by CBF/PD
 static constexpr int OBS_DIM = 115;  // 3+3+3+2+29+29+29+17
+static constexpr int GRU_HIDDEN_DIM = 256;
+
+enum class PolicyType {
+    kMlp,
+    kGruMlp,
+};
+
+static PolicyType PolicyTypeFromString(const std::string& policy_type) {
+    if (policy_type == "mlp" || policy_type == "MLP") {
+        return PolicyType::kMlp;
+    }
+    if (policy_type == "gru_mlp" || policy_type == "GRU_MLP") {
+        return PolicyType::kGruMlp;
+    }
+    throw std::runtime_error(
+        "policy_type must be 'mlp' or 'gru_mlp', got '" + policy_type + "'");
+}
+
+static const char* PolicyTypeName(PolicyType policy_type) {
+    switch (policy_type) {
+        case PolicyType::kMlp:
+            return "mlp";
+        case PolicyType::kGruMlp:
+            return "gru_mlp";
+    }
+    return "unknown";
+}
 
 // All 29 joint names in motor index order
 static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
@@ -53,38 +81,100 @@ static constexpr int CBF_CONTROLLED_INDICES[NUM_CBF_CONTROLLED] = {
 // ---------------------------------------------------------------------------
 class OnnxPolicy {
 public:
-    OnnxPolicy(const std::string& model_path)
-        : env_(ORT_LOGGING_LEVEL_WARNING, "g1_policy") {
+    OnnxPolicy(const std::string& model_path, PolicyType policy_type)
+        : policy_type_(policy_type),
+          env_(ORT_LOGGING_LEVEL_WARNING, "g1_policy") {
         session_options_.SetGraphOptimizationLevel(ORT_ENABLE_EXTENDED);
         session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), session_options_);
-        if (session_->GetInputCount() != 1) {
-            throw std::runtime_error("expected ONNX policy to have exactly one input");
+        const size_t expected_inputs = IsRecurrent() ? 2 : 1;
+        const size_t expected_outputs = IsRecurrent() ? 2 : 1;
+        if (session_->GetInputCount() != expected_inputs) {
+            throw std::runtime_error(
+                "expected " + std::to_string(expected_inputs) +
+                " ONNX policy input(s) for policy_type=" +
+                PolicyTypeName(policy_type_) + ", got " +
+                std::to_string(session_->GetInputCount()));
         }
-        for (size_t i = 0; i < session_->GetInputCount(); ++i) {
+        if (session_->GetOutputCount() != expected_outputs) {
+            throw std::runtime_error(
+                "expected " + std::to_string(expected_outputs) +
+                " ONNX policy output(s) for policy_type=" +
+                PolicyTypeName(policy_type_) + ", got " +
+                std::to_string(session_->GetOutputCount()));
+        }
+
+        for (size_t i = 0; i < expected_inputs; ++i) {
             auto type_info = session_->GetInputTypeInfo(i);
             input_shapes_.push_back(type_info.GetTensorTypeAndShapeInfo().GetShape());
             auto name = session_->GetInputNameAllocated(i, allocator_);
             input_name_strs_.push_back(name.get());
             size_t size = ShapeElementCount(input_shapes_.back(), "input");
-            if (size != OBS_DIM) {
-                throw std::runtime_error(
-                    "expected ONNX policy input size " + std::to_string(OBS_DIM) +
-                    ", got " + std::to_string(size));
-            }
             input_sizes_.push_back(size);
         }
         for (auto& s : input_name_strs_) input_names_.push_back(s.c_str());
-        auto out_type = session_->GetOutputTypeInfo(0);
-        output_shape_ = out_type.GetTensorTypeAndShapeInfo().GetShape();
-        output_size_ = ShapeElementCount(output_shape_, "output");
-        if (output_size_ != NUM_ACTION) {
+
+        if (input_sizes_[0] != OBS_DIM) {
             throw std::runtime_error(
-                "expected ONNX policy output size " + std::to_string(NUM_ACTION) +
-                ", got " + std::to_string(output_size_));
+                "expected ONNX policy obs input size " + std::to_string(OBS_DIM) +
+                ", got " + std::to_string(input_sizes_[0]));
         }
-        auto out_name = session_->GetOutputNameAllocated(0, allocator_);
-        output_name_str_ = out_name.get();
-        output_name_ = output_name_str_.c_str();
+        if (input_name_strs_[0] != "obs") {
+            throw std::runtime_error(
+                "expected ONNX policy input 0 to be named 'obs', got '" +
+                input_name_strs_[0] + "'");
+        }
+
+        for (size_t i = 0; i < expected_outputs; ++i) {
+            auto type_info = session_->GetOutputTypeInfo(i);
+            output_shapes_.push_back(type_info.GetTensorTypeAndShapeInfo().GetShape());
+            output_sizes_.push_back(ShapeElementCount(output_shapes_.back(), "output"));
+            auto name = session_->GetOutputNameAllocated(i, allocator_);
+            output_name_strs_.push_back(name.get());
+        }
+        for (auto& s : output_name_strs_) output_names_.push_back(s.c_str());
+
+        if (output_sizes_[0] != NUM_ACTION) {
+            throw std::runtime_error(
+                "expected ONNX policy actions output size " + std::to_string(NUM_ACTION) +
+                ", got " + std::to_string(output_sizes_[0]));
+        }
+        if (output_name_strs_[0] != "actions") {
+            throw std::runtime_error(
+                "expected ONNX policy output 0 to be named 'actions', got '" +
+                output_name_strs_[0] + "'");
+        }
+
+        if (IsRecurrent()) {
+            if (input_name_strs_[1] != "h_in") {
+                throw std::runtime_error(
+                    "expected recurrent ONNX input 1 to be named 'h_in', got '" +
+                    input_name_strs_[1] + "'");
+            }
+            if (output_name_strs_[1] != "h_out") {
+                throw std::runtime_error(
+                    "expected recurrent ONNX output 1 to be named 'h_out', got '" +
+                    output_name_strs_[1] + "'");
+            }
+            const std::vector<int64_t> expected_hidden_shape = {1, 1, GRU_HIDDEN_DIM};
+            if (input_shapes_[1] != expected_hidden_shape) {
+                throw std::runtime_error(
+                    "expected recurrent ONNX h_in shape " +
+                    ShapeString(expected_hidden_shape) + ", got " +
+                    ShapeString(input_shapes_[1]));
+            }
+            if (output_shapes_[1] != expected_hidden_shape) {
+                throw std::runtime_error(
+                    "expected recurrent ONNX h_out shape " +
+                    ShapeString(expected_hidden_shape) + ", got " +
+                    ShapeString(output_shapes_[1]));
+            }
+            if (output_sizes_[1] != input_sizes_[1]) {
+                throw std::runtime_error(
+                    "recurrent ONNX h_in and h_out sizes do not match");
+            }
+            hidden_shape_ = input_shapes_[1];
+            hidden_state_.assign(input_sizes_[1], 0.0f);
+        }
     }
 
     std::vector<float> infer(std::vector<float>& obs) {
@@ -95,18 +185,48 @@ public:
         }
         auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
         std::vector<Ort::Value> input_tensors;
-        for (size_t i = 0; i < input_names_.size(); ++i) {
-            auto tensor = Ort::Value::CreateTensor<float>(
-                memory_info, obs.data(), input_sizes_[i],
-                input_shapes_[i].data(), input_shapes_[i].size());
-            input_tensors.push_back(std::move(tensor));
+        input_tensors.push_back(Ort::Value::CreateTensor<float>(
+            memory_info, obs.data(), input_sizes_[0],
+            input_shapes_[0].data(), input_shapes_[0].size()));
+        if (IsRecurrent()) {
+            input_tensors.push_back(Ort::Value::CreateTensor<float>(
+                memory_info, hidden_state_.data(), hidden_state_.size(),
+                hidden_shape_.data(), hidden_shape_.size()));
         }
+
         auto output_tensors = session_->Run(
             Ort::RunOptions{nullptr},
             input_names_.data(), input_tensors.data(), input_tensors.size(),
-            &output_name_, 1);
-        auto* floatarr = output_tensors.front().GetTensorMutableData<float>();
-        return std::vector<float>(floatarr, floatarr + output_size_);
+            output_names_.data(), output_names_.size());
+        auto* action_data = output_tensors[0].GetTensorMutableData<float>();
+        std::vector<float> actions(action_data, action_data + output_sizes_[0]);
+
+        if (IsRecurrent()) {
+            auto* hidden_data = output_tensors[1].GetTensorMutableData<float>();
+            hidden_state_.assign(hidden_data, hidden_data + hidden_state_.size());
+        }
+        return actions;
+    }
+
+    void ResetHiddenState() {
+        std::fill(hidden_state_.begin(), hidden_state_.end(), 0.0f);
+    }
+
+    bool IsRecurrent() const {
+        return policy_type_ == PolicyType::kGruMlp;
+    }
+
+    std::string DescribeSignature() const {
+        std::ostringstream oss;
+        oss << "inputs:";
+        for (size_t i = 0; i < input_name_strs_.size(); ++i) {
+            oss << " " << input_name_strs_[i] << ShapeString(input_shapes_[i]);
+        }
+        oss << " outputs:";
+        for (size_t i = 0; i < output_name_strs_.size(); ++i) {
+            oss << " " << output_name_strs_[i] << ShapeString(output_shapes_[i]);
+        }
+        return oss.str();
     }
 
 private:
@@ -126,6 +246,20 @@ private:
         return size;
     }
 
+    static std::string ShapeString(const std::vector<int64_t>& shape) {
+        std::ostringstream oss;
+        oss << "[";
+        for (size_t i = 0; i < shape.size(); ++i) {
+            if (i > 0) {
+                oss << ",";
+            }
+            oss << shape[i];
+        }
+        oss << "]";
+        return oss.str();
+    }
+
+    PolicyType policy_type_;
     Ort::Env env_;
     Ort::SessionOptions session_options_;
     std::unique_ptr<Ort::Session> session_;
@@ -133,11 +267,13 @@ private:
     std::vector<std::string> input_name_strs_;
     std::vector<const char*> input_names_;
     std::vector<std::vector<int64_t>> input_shapes_;
-    std::vector<int64_t> input_sizes_;
-    std::string output_name_str_;
-    const char* output_name_;
-    std::vector<int64_t> output_shape_;
-    size_t output_size_{0};
+    std::vector<size_t> input_sizes_;
+    std::vector<std::string> output_name_strs_;
+    std::vector<const char*> output_names_;
+    std::vector<std::vector<int64_t>> output_shapes_;
+    std::vector<size_t> output_sizes_;
+    std::vector<int64_t> hidden_shape_;
+    std::vector<float> hidden_state_;
 };
 
 // ---------------------------------------------------------------------------
@@ -149,8 +285,11 @@ public:
                        running_policy_(false), state_received_(false) {
 
         // Declare parameters
-        this->declare_parameter<std::string>("model_path",
-            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/policy.onnx");
+        this->declare_parameter<std::string>("policy_type", "mlp");
+        this->declare_parameter<std::string>("policy_paths.mlp",
+            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/mlp/policy.onnx");
+        this->declare_parameter<std::string>("policy_paths.gru_mlp",
+            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/gru_mlp/policy.onnx");
         this->declare_parameter<double>("control_dt", 0.02);
         this->declare_parameter<double>("standup_duration", 3.0);
         this->declare_parameter<double>("gait_period", 0.6);
@@ -166,7 +305,12 @@ public:
         this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>(NUM_ACTION, 0.44));
 
         // Read parameters
-        std::string model_path = this->get_parameter("model_path").as_string();
+        const std::string policy_type_param = this->get_parameter("policy_type").as_string();
+        policy_type_ = PolicyTypeFromString(policy_type_param);
+        const std::string model_path = this->get_parameter(
+            policy_type_ == PolicyType::kMlp
+                ? "policy_paths.mlp"
+                : "policy_paths.gru_mlp").as_string();
         control_dt_ = this->get_parameter("control_dt").as_double();
         standup_duration_ = this->get_parameter("standup_duration").as_double();
         gait_period_ = this->get_parameter("gait_period").as_double();
@@ -192,9 +336,13 @@ public:
         vel_limit_z_ = {static_cast<float>(lim_z[0]), static_cast<float>(lim_z[1])};
 
         // Load policy
-        RCLCPP_INFO(this->get_logger(), "Loading full-body policy: %s", model_path.c_str());
+        RCLCPP_INFO(
+            this->get_logger(), "Loading full-body policy (%s): %s",
+            PolicyTypeName(policy_type_), model_path.c_str());
         RCLCPP_INFO(this->get_logger(), "WBC mode: %s", wbc_ ? "true" : "false");
-        policy_ = std::make_unique<OnnxPolicy>(model_path);
+        policy_ = std::make_unique<OnnxPolicy>(model_path, policy_type_);
+        RCLCPP_INFO(this->get_logger(), "Policy signature: %s",
+                    policy_->DescribeSignature().c_str());
         last_action_.resize(NUM_ACTION, 0.0f);
 
         auto qos = rclcpp::SensorDataQoS().keep_last(1);
@@ -301,6 +449,7 @@ private:
         } else {
             if (!running_policy_) {
                 running_policy_ = true;
+                policy_->ResetHiddenState();
                 RCLCPP_INFO(
                     this->get_logger(), "Phase 2: policy active; waist/upper-body authority: %s",
                     wbc_ ? "policy" : "PD targets");
@@ -389,6 +538,7 @@ private:
     std::vector<double> default_pos_, action_scale_;
     double control_dt_, standup_duration_, gait_period_;
     std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;
+    PolicyType policy_type_{PolicyType::kMlp};
     bool wbc_{false};
 
     // State
