@@ -8,7 +8,7 @@
   <arg name="use_sim_time" default="false"/>
   <arg name="viz" default="true"/>
   <arg name="viz_rate" default="100.0"/>
-  <arg name="wbc" default="false"/>
+  <arg name="wbc" default="true"/>
   <arg name="policy_type" default="gru_mlp"/>
   <arg name="initial_mode" default="neutral"/>
 
