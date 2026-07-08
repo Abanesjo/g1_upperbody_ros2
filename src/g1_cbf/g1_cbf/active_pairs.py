@@ -3,8 +3,8 @@
 import jax.numpy as jnp
 
 from g1_cbf.jax_kinematics import (
+    BODY_INDEX,
     COLLISION_PAIR_INDICES,
-    N_BODIES,
     N_HUMAN_CAPSULES,
     RADII,
     capsule_endpoints_all,
@@ -12,11 +12,25 @@ from g1_cbf.jax_kinematics import (
 )
 
 
+EXTERNAL_ROBOT_BODY_NAMES = (
+    'torso',
+    'left_arm',
+    'right_arm',
+    'left_shoulder',
+    'right_shoulder',
+    'left_hand',
+    'right_hand',
+)
+EXTERNAL_ROBOT_BODY_INDICES = tuple(
+    BODY_INDEX[name] for name in EXTERNAL_ROBOT_BODY_NAMES
+)
+N_EXTERNAL_ROBOT_BODIES = len(EXTERNAL_ROBOT_BODY_INDICES)
+
 ALL_EXTERNAL_PAIR_INDICES = jnp.array(
     [
         (robot_idx, human_idx)
         for human_idx in range(N_HUMAN_CAPSULES)
-        for robot_idx in range(N_BODIES)
+        for robot_idx in EXTERNAL_ROBOT_BODY_INDICES
     ],
     dtype=jnp.int32,
 )

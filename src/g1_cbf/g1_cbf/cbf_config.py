@@ -14,6 +14,7 @@ import jax.numpy as jnp
 from cbfpy import CBFConfig
 from dpax.endpoints import proximity
 
+from g1_cbf.active_pairs import N_EXTERNAL_ROBOT_BODIES
 from g1_cbf.jax_kinematics import (
     capsule_endpoints_all,
     compute_sphere_counts,
@@ -21,7 +22,6 @@ from g1_cbf.jax_kinematics import (
     sphere_centers,
     COLLISION_PAIR_INDICES,
     N_SELF_PAIRS,
-    N_BODIES,
     N_HUMAN_CAPSULES,
     N_LEG_JOINTS,
     N_CONTROLLED_JOINTS,
@@ -46,6 +46,8 @@ class G1CollisionCBFConfig(CBFConfig):
         solver_tol: float = 1e-3,
         human_half_lengths: list = None,
         human_radii: list = None,
+        external_torso_margin_phi: float = None,
+        external_torso_gamma: float = None,
         external_pair_slots: int = None,
         internal_pair_slots: int = None,
     ):
@@ -60,6 +62,20 @@ class G1CollisionCBFConfig(CBFConfig):
         self.external_gamma = external_gamma
         self.internal_margin_phi = internal_margin_phi
         self.external_margin_phi = external_margin_phi
+        self.external_torso_margin_phi = (
+            external_margin_phi
+            if external_torso_margin_phi is None
+            else float(external_torso_margin_phi)
+        )
+        self.external_torso_gamma = (
+            external_gamma
+            if external_torso_gamma is None
+            else float(external_torso_gamma)
+        )
+        if self.external_torso_margin_phi < 0.0:
+            raise ValueError('external_torso_margin_phi must be non-negative')
+        if self.external_torso_gamma <= 0.0:
+            raise ValueError('external_torso_gamma must be positive')
         self.geom = str(collision_geometry).lower()
         if self.geom not in ('capsules', 'spheres'):
             raise ValueError(
@@ -67,7 +83,9 @@ class G1CollisionCBFConfig(CBFConfig):
             )
         self.radius_gain = sphere_radius_gain
         self.external_pair_slots = int(
-            external_pair_slots or (N_BODIES * N_HUMAN_CAPSULES)
+            external_pair_slots or (
+                N_EXTERNAL_ROBOT_BODIES * N_HUMAN_CAPSULES
+            )
         )
         self.internal_pair_slots = 1
 
@@ -171,8 +189,40 @@ class G1CollisionCBFConfig(CBFConfig):
                 head_circle_enabled,
             )
 
-    def alpha(self, h, *args, **kwargs):
-        return self.alpha_gains * h
+    def alpha(self, h, q_legs=None, human_capsules=None,
+              active_pair_indices=None, active_pair_mask=None,
+              active_internal_indices=None, active_internal_mask=None,
+              pelvis_position=None, pelvis_quat=None,
+              world_circle_radius=None, head_collider_radius=None,
+              head_circle_enabled=None, **kwargs):
+        del (
+            q_legs, human_capsules, active_pair_mask,
+            active_internal_indices, active_internal_mask, pelvis_position,
+            pelvis_quat, world_circle_radius, head_collider_radius,
+            head_circle_enabled, kwargs,
+        )
+        if active_pair_indices is None:
+            return self.alpha_gains * h
+        return self._alpha_gains_for_pairs(active_pair_indices) * h
+
+    def _alpha_gains_for_pairs(self, active_pair_indices):
+        external_pair_gains = jnp.where(
+            active_pair_indices[:, 0] == HEAD_COLLIDER_BODY_INDEX,
+            self.external_torso_gamma,
+            self.external_gamma,
+        )
+        if self.geom == 'spheres':
+            external_gains = jnp.repeat(
+                external_pair_gains,
+                self.max_robot_spheres * self.max_human_spheres,
+            )
+        else:
+            external_gains = external_pair_gains
+        return jnp.concatenate([
+            self.internal_gamma * jnp.ones(self.num_internal_barriers),
+            external_gains,
+            self.external_gamma * jnp.ones(self.num_head_circle_barriers),
+        ])
 
     # ------------------------------------------------------------------
     # Capsule mode
@@ -200,10 +250,15 @@ class G1CollisionCBFConfig(CBFConfig):
         for slot in range(self.external_pair_slots):
             i = active_pair_indices[slot, 0]
             j = active_pair_indices[slot, 1]
+            margin = jnp.where(
+                i == HEAD_COLLIDER_BODY_INDEX,
+                self.external_torso_margin_phi,
+                self.external_margin_phi,
+            )
             phi = self._capsule_barrier(
                 RADII[i], a_robot[i], b_robot[i],
                 h_r[j], h_a[j], h_b[j],
-                self.external_margin_phi,
+                margin,
             )
             barriers.append(jnp.where(
                 active_pair_mask[slot], phi, 1.0,
@@ -264,7 +319,12 @@ class G1CollisionCBFConfig(CBFConfig):
             ci = robot_centers[i]
             hj_centers = human_centers[j]
             ri = RADII[i] * rg
-            r_sum = ri + h_r[j] * rg + self.external_margin_phi
+            margin = jnp.where(
+                i == HEAD_COLLIDER_BODY_INDEX,
+                self.external_torso_margin_phi,
+                self.external_margin_phi,
+            )
+            r_sum = ri + h_r[j] * rg + margin
             n_robot = self.sphere_counts_jnp[i]
             n_human = self.human_sphere_counts_jnp[j]
             for si in range(self.max_robot_spheres):

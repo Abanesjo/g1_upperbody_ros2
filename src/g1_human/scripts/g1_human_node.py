@@ -19,7 +19,7 @@ from std_msgs.msg import ColorRGBA
 
 from g1_cbf.jax_kinematics import (
     capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII,
-    N_BODIES, CONTROLLED_JOINTS, CONTROLLED_JOINT_DEFAULTS,
+    CONTROLLED_JOINTS, CONTROLLED_JOINT_DEFAULTS,
 )
 from g1_cbf_msg.msg import Capsule, CapsuleArray
 
@@ -28,6 +28,7 @@ DEFAULT_HUMAN_Y = 0.0
 DEFAULT_HUMAN_Z = 0.784202
 DEFAULT_HUMAN_YAW = 0.0
 WORLD_FRAME = 'world'
+HUMAN_BASE_BODY_COUNT = len(BODY_NAMES)
 
 SENSOR_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -152,7 +153,8 @@ class G1HumanNode(Node):
         capsule_data = []
         thigh_bottoms = {}  # side -> bottom endpoint in local frame (for shin attachment)
 
-        for i in range(N_BODIES):
+        for i in range(HUMAN_BASE_BODY_COUNT):
+            body_name = BODY_NAMES[i]
             r = float(radii[i]) * radius_scale
             hl = float(half_lengths[i])
             a_local = a_all[i]
@@ -185,9 +187,9 @@ class G1HumanNode(Node):
             capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
             capsule.b = Point(x=float(b_world[0]), y=float(b_world[1]), z=float(b_world[2]))
             capsule.radius = r
-            capsule.name = BODY_NAMES[i]
+            capsule.name = body_name
             capsule_msg.capsules.append(capsule)
-            capsule_data.append((BODY_NAMES[i], r, hl, a_world, b_world))
+            capsule_data.append((body_name, r, hl, a_world, b_world))
 
         # Shin capsules — start at bottom of extended thigh, continue in same direction
         for side in ('left', 'right'):

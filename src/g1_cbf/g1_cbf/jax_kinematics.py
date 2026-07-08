@@ -2,8 +2,8 @@
 
 Hardcodes the kinematic chain from the 29-DOF URDF, using the 11
 CBF-controlled non-wrist upper-body joints. All functions are JIT-compatible
-(pure jnp, no side effects). Wrist joints and all leg joints are fixed at zero
-(neutral) in the upper-body collision chain.
+(pure jnp, no side effects). Wrist joints are fixed at zero (neutral), while
+leg joints are supplied from /joint_states for collision geometry.
 
 Joint index mapping for q (11,):
   0: waist_yaw
@@ -193,7 +193,8 @@ _T_R_WRIST_YAW_TO_HAND_BASE = jnp.array(_np_T(
 ))
 
 # --- Leg chain joint origins ---
-# q_legs[0..5] = L_hip_pitch, L_hip_roll, L_hip_yaw, R_hip_pitch, R_hip_roll, R_hip_yaw
+# q_legs[0..5] = L_hip_pitch, L_hip_roll, L_hip_yaw,
+#                R_hip_pitch, R_hip_roll, R_hip_yaw
 
 # pelvis → left_hip_pitch_joint (q_legs[0], axis=Y)
 _T_PELVIS_TO_L_HIP_PITCH = jnp.array(_np_T(_I3, [0.0, 0.064452, -0.1027]))
@@ -323,7 +324,7 @@ LEG_JOINTS = [
 N_LEG_JOINTS = len(LEG_JOINTS)
 
 # Maximum human capsules (for fixed-size arrays)
-N_HUMAN_CAPSULES = 9
+N_HUMAN_CAPSULES = 11
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +336,8 @@ def fk_body_transforms(q, q_legs):
 
     Args:
         q: (11,) controlled joint positions.
-        q_legs: (6,) leg joint positions [L_hip_pitch, L_hip_roll, L_hip_yaw,
-                R_hip_pitch, R_hip_roll, R_hip_yaw].
+        q_legs: (6,) leg joint positions [L_hip_pitch, L_hip_roll,
+                L_hip_yaw, R_hip_pitch, R_hip_roll, R_hip_yaw].
 
     Returns:
         Tuple of transforms (4x4 each), ordered per BODY_NAMES.

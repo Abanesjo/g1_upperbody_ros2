@@ -22,6 +22,7 @@ from cbfpy import CBF
 from functools import partial
 
 from g1_cbf.active_pairs import (
+    N_EXTERNAL_ROBOT_BODIES,
     make_internal_sphere_pair_indices,
     select_active_external_pairs_jax,
     select_active_internal_sphere_pairs_jax,
@@ -31,7 +32,6 @@ from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
     CONTROLLED_JOINT_DEFAULTS,
     LEG_JOINTS,
-    N_BODIES,
     N_HUMAN_CAPSULES,
     N_CONTROLLED_JOINTS,
     N_LEG_JOINTS,
@@ -65,13 +65,21 @@ class G1CBFNode(Node):
         self.declare_parameter('publish_viz', False)
         self.declare_parameter('max_iter', 100)
         self.declare_parameter('solver_tol', 1e-3)
-        self.declare_parameter('human_half_lengths', [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.225, 0.225])
-        self.declare_parameter('human_radii', [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.065, 0.065])
+        self.declare_parameter('human_half_lengths', [
+            0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225,
+            0.16, 0.16, 0.225, 0.225,
+        ])
+        self.declare_parameter('human_radii', [
+            0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065,
+            0.10, 0.10, 0.065, 0.065,
+        ])
         self.declare_parameter('human_radius_scale', 1.0)
         self.declare_parameter('external_filter_enabled', True)
         self.declare_parameter('external_activation_distance', 0.35)
         self.declare_parameter('external_max_active_pairs', 16)
         self.declare_parameter('external_always_keep_nearest', 4)
+        self.declare_parameter('external_torso_margin_phi', 0.1)
+        self.declare_parameter('external_torso_gamma', 0.3)
         self.declare_parameter('internal_filter_enabled', True)
         self.declare_parameter('internal_activation_distance', 0.20)
         self.declare_parameter('internal_max_active_pairs', 48)
@@ -89,6 +97,12 @@ class G1CBFNode(Node):
         )
         external_margin_phi = float(
             self.get_parameter('external_margin_phi').value
+        )
+        external_torso_margin_phi = float(
+            self.get_parameter('external_torso_margin_phi').value
+        )
+        external_torso_gamma = float(
+            self.get_parameter('external_torso_gamma').value
         )
         max_velocity = self.get_parameter('max_velocity').value
         head_collider_radius = float(
@@ -112,8 +126,10 @@ class G1CBFNode(Node):
             f'CBF params: dt={dt}, '
             f'internal_gamma={internal_gamma}, '
             f'external_gamma={external_gamma}, '
+            f'external_torso_gamma={external_torso_gamma}, '
             f'internal_margin_phi={internal_margin_phi}, '
             f'external_margin_phi={external_margin_phi}, '
+            f'external_torso_margin_phi={external_torso_margin_phi}, '
             f'head_circle_radius={world_circle_radius}, '
             f'head_collider_radius={head_collider_radius}, '
             f'area_cbf={area_cbf}, '
@@ -144,7 +160,7 @@ class G1CBFNode(Node):
         sphere_radius_gain = float(
             self.get_parameter('sphere_radius_gain').value
         )
-        full_external_pairs = N_BODIES * N_HUMAN_CAPSULES
+        full_external_pairs = N_EXTERNAL_ROBOT_BODIES * N_HUMAN_CAPSULES
         if external_filter_enabled:
             self._external_pair_slots = max(
                 1, min(external_max_active_pairs, full_external_pairs)
@@ -184,6 +200,8 @@ class G1CBFNode(Node):
             solver_tol=self.get_parameter('solver_tol').value,
             human_half_lengths=list(self.get_parameter('human_half_lengths').value),
             human_radii=human_radii,
+            external_torso_margin_phi=external_torso_margin_phi,
+            external_torso_gamma=external_torso_gamma,
             external_pair_slots=self._external_pair_slots,
             internal_pair_slots=self._internal_pair_slots,
         )
@@ -251,7 +269,7 @@ class G1CBFNode(Node):
 
         # State
         self.q_ctrl = None   # (N_CONTROLLED_JOINTS,) current controlled joint positions
-        self.q_legs = np.zeros(N_LEG_JOINTS)  # (6,) current leg joint positions
+        self.q_legs = np.zeros(N_LEG_JOINTS)  # current leg joint positions
         self.q_des_latest = None
         self.q_des_filtered = None
         self.q_cbf_target = None
