@@ -294,8 +294,8 @@ public:
         this->declare_parameter<double>("standup_duration", 3.0);
         this->declare_parameter<double>("gait_period", 0.6);
         this->declare_parameter<bool>("wbc", false);
-        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x", {-0.5, 1.0});
-        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y", {-0.5, 0.5});
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x", {-1.0, 2.0});
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y", {-1.0, 1.0});
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z", {-1.0, 1.0});
         this->declare_parameter<std::vector<double>>("default_joint_pos", std::vector<double>{
             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,

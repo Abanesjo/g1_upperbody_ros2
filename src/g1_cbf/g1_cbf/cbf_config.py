@@ -397,7 +397,7 @@ class G1CollisionCBFConfig(CBFConfig):
 
 
 class G1CmdVelCBFConfig(CBFConfig):
-    """CBF config for planar base velocity against the world circle."""
+    """CBF config for planar base velocity safety constraints."""
 
     def __init__(
         self,
@@ -423,12 +423,26 @@ class G1CmdVelCBFConfig(CBFConfig):
 
         self.external_gamma = external_gamma
         self.external_margin_phi = external_margin_phi
-        self.alpha_gains = external_gamma * jnp.ones(1)
+        self.num_human_endpoint_barriers = 2 * N_HUMAN_CAPSULES
+        self.alpha_gains = external_gamma * jnp.ones(
+            1 + self.num_human_endpoint_barriers,
+        )
 
         dummy_pelvis_quat = jnp.array([0.0, 0.0, 0.0, 1.0])
         dummy_world_circle_radius = jnp.array(3.0)
         dummy_head_collider_radius = jnp.array(0.3)
         dummy_cbf_enabled = jnp.array(True)
+        dummy_human_endpoint_points_xy = jnp.zeros((
+            self.num_human_endpoint_barriers,
+            2,
+        ))
+        dummy_human_endpoint_radii = jnp.zeros(
+            self.num_human_endpoint_barriers,
+        )
+        dummy_human_endpoint_mask = jnp.zeros(
+            self.num_human_endpoint_barriers,
+            dtype=bool,
+        )
 
         super().__init__(
             n=2,
@@ -443,6 +457,9 @@ class G1CmdVelCBFConfig(CBFConfig):
                 dummy_world_circle_radius,
                 dummy_head_collider_radius,
                 dummy_cbf_enabled,
+                dummy_human_endpoint_points_xy,
+                dummy_human_endpoint_radii,
+                dummy_human_endpoint_mask,
             ),
         )
 
@@ -461,15 +478,36 @@ class G1CmdVelCBFConfig(CBFConfig):
         return jnp.stack([body_x_world, body_y_world], axis=1)
 
     def h_1(self, z, pelvis_quat, world_circle_radius,
-            head_collider_radius, cbf_enabled, **kwargs):
+            head_collider_radius, cbf_enabled, human_endpoint_points_xy,
+            human_endpoint_radii, human_endpoint_mask, **kwargs):
         del pelvis_quat
-        safe_radius = (
+        world_safe_radius = (
             world_circle_radius
             - head_collider_radius
             - self.external_margin_phi
         )
-        phi = safe_radius ** 2 - jnp.sum(z ** 2)
-        return jnp.array([jnp.where(cbf_enabled, phi, 1.0)])
+        world_phi = world_safe_radius ** 2 - jnp.sum(z ** 2)
+
+        endpoint_safe_radii = (
+            head_collider_radius
+            + human_endpoint_radii
+            + self.external_margin_phi
+        )
+        endpoint_delta = z - human_endpoint_points_xy
+        endpoint_phi = (
+            jnp.sum(endpoint_delta ** 2, axis=1)
+            - endpoint_safe_radii ** 2
+        )
+        endpoint_phi = jnp.where(
+            cbf_enabled & human_endpoint_mask,
+            endpoint_phi,
+            1.0,
+        )
+
+        return jnp.concatenate([
+            jnp.array([jnp.where(cbf_enabled, world_phi, 1.0)]),
+            endpoint_phi,
+        ])
 
     def alpha(self, h, *args, **kwargs):
         return self.alpha_gains * h

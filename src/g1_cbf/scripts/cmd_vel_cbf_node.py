@@ -24,8 +24,14 @@ from g1_cbf.cbf_config import G1CmdVelCBFConfig
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
     LEG_JOINTS,
+    N_HUMAN_CAPSULES,
     head_sphere_center_np,
 )
+from g1_cbf_msg.msg import CapsuleArray
+
+
+WORLD_FRAME = 'world'
+N_HUMAN_ENDPOINT_SPHERES = 2 * N_HUMAN_CAPSULES
 
 
 class CmdVelCBFNode(Node):
@@ -39,8 +45,8 @@ class CmdVelCBFNode(Node):
         self.declare_parameter('external_margin_phi', 0.001)
         self.declare_parameter('head_collider_radius', 0.3)
         self.declare_parameter('world_circle_radius', 3.0)
-        self.declare_parameter('cmd_vel_limits.lin_vel_x', [-0.5, 1.0])
-        self.declare_parameter('cmd_vel_limits.lin_vel_y', [-0.5, 0.5])
+        self.declare_parameter('cmd_vel_limits.lin_vel_x', [-1.0, 2.0])
+        self.declare_parameter('cmd_vel_limits.lin_vel_y', [-1.0, 1.0])
         self.declare_parameter('state_timeout_sec', 0.2)
         self.declare_parameter('max_iter', 100)
         self.declare_parameter('solver_tol', 1e-3)
@@ -93,6 +99,11 @@ class CmdVelCBFNode(Node):
         self._q_ctrl = None
         self._q_legs = None
         self._last_joint_time = None
+        self._human_endpoint_points_xy = None
+        self._human_endpoint_radii = None
+        self._human_endpoint_mask = None
+        self._last_human_time = None
+        self._human_colliders_received = False
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -107,6 +118,9 @@ class CmdVelCBFNode(Node):
         )
         self.create_subscription(
             JointState, '/joint_states', self._joint_states_cb, qos,
+        )
+        self.create_subscription(
+            CapsuleArray, '/human/colliders', self._human_colliders_cb, qos,
         )
         self._cmd_pub = self.create_publisher(
             Twist, '/cmd_vel_safe', qos,
@@ -183,6 +197,9 @@ class CmdVelCBFNode(Node):
             jnp.array(self._world_circle_radius, dtype=jnp.float64),
             jnp.array(self._head_collider_radius, dtype=jnp.float64),
             jnp.array(True),
+            jnp.zeros((N_HUMAN_ENDPOINT_SPHERES, 2), dtype=jnp.float64),
+            jnp.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=jnp.float64),
+            jnp.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=bool),
         )
         self.get_logger().info(
             f'cmd_vel CBF ready - JIT compiled in '
@@ -231,6 +248,60 @@ class CmdVelCBFNode(Node):
             dtype=np.float64,
         )
         self._last_joint_time = self.get_clock().now()
+
+    def _human_colliders_cb(self, msg: CapsuleArray):
+        self._human_colliders_received = True
+        frame = self._normalize_frame(msg.header.frame_id)
+        if frame != WORLD_FRAME:
+            self._clear_human_endpoints()
+            self.get_logger().warn(
+                f"Unsupported /human/colliders frame '{frame}'; "
+                'head-vs-human cmd_vel CBF disabled for this tick',
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        points_xy = np.zeros(
+            (N_HUMAN_ENDPOINT_SPHERES, 2),
+            dtype=np.float64,
+        )
+        radii = np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=np.float64)
+        mask = np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=bool)
+        valid_capsules = 0
+
+        for i, capsule in enumerate(msg.capsules[:N_HUMAN_CAPSULES]):
+            endpoint_xy = np.array([
+                [capsule.a.x, capsule.a.y],
+                [capsule.b.x, capsule.b.y],
+            ], dtype=np.float64)
+            radius = float(capsule.radius)
+            if radius <= 0.0 or not np.all(np.isfinite(endpoint_xy)):
+                self.get_logger().warn(
+                    'Invalid capsule on /human/colliders; skipping it for '
+                    'head-vs-human cmd_vel CBF',
+                    throttle_duration_sec=2.0,
+                )
+                continue
+
+            slot = 2 * i
+            points_xy[slot:slot + 2] = endpoint_xy
+            radii[slot:slot + 2] = radius
+            mask[slot:slot + 2] = True
+            valid_capsules += 1
+
+        if valid_capsules == 0:
+            self._clear_human_endpoints()
+            self.get_logger().warn(
+                '/human/colliders contained no valid capsules; '
+                'head-vs-human cmd_vel CBF disabled for this tick',
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        self._human_endpoint_points_xy = points_xy
+        self._human_endpoint_radii = radii
+        self._human_endpoint_mask = mask
+        self._last_human_time = self.get_clock().now()
 
     def _tick(self):
         cmd = self._latest_cmd
@@ -294,6 +365,11 @@ class CmdVelCBFNode(Node):
 
     def _filter_planar_velocity(self, u_des_np):
         head_xy = self._head_xy_world()
+        (
+            human_endpoint_points_xy,
+            human_endpoint_radii,
+            human_endpoint_mask,
+        ) = self._human_endpoint_args()
         try:
             safe_jnp = self.cbf.safety_filter(
                 jnp.array(head_xy, dtype=jnp.float64),
@@ -302,6 +378,9 @@ class CmdVelCBFNode(Node):
                 jnp.array(self._world_circle_radius, dtype=jnp.float64),
                 jnp.array(self._head_collider_radius, dtype=jnp.float64),
                 jnp.array(True),
+                jnp.array(human_endpoint_points_xy, dtype=jnp.float64),
+                jnp.array(human_endpoint_radii, dtype=jnp.float64),
+                jnp.array(human_endpoint_mask, dtype=bool),
             )
             safe = np.asarray(safe_jnp, dtype=np.float64)
         except Exception as exc:
@@ -327,6 +406,48 @@ class CmdVelCBFNode(Node):
         )
         return head_world[:2]
 
+    def _human_endpoint_args(self):
+        disabled = (
+            np.zeros((N_HUMAN_ENDPOINT_SPHERES, 2), dtype=np.float64),
+            np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=np.float64),
+            np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=bool),
+        )
+        if (
+            self._human_endpoint_points_xy is None
+            or self._human_endpoint_radii is None
+            or self._human_endpoint_mask is None
+        ):
+            if self._human_colliders_received:
+                self.get_logger().warn(
+                    'No valid capsules available from /human/colliders; '
+                    'head-vs-human cmd_vel CBF disabled for this tick',
+                    throttle_duration_sec=2.0,
+                )
+            return disabled
+
+        if self._state_timeout_sec > 0.0 and self._last_human_time is not None:
+            age = (
+                self.get_clock().now() - self._last_human_time
+            ).nanoseconds * 1e-9
+            if age > self._state_timeout_sec:
+                self.get_logger().warn(
+                    f'/human/colliders stale by {age:.3f}s; '
+                    'head-vs-human cmd_vel CBF disabled for this tick',
+                    throttle_duration_sec=2.0,
+                )
+                return disabled
+
+        return (
+            self._human_endpoint_points_xy,
+            self._human_endpoint_radii,
+            self._human_endpoint_mask,
+        )
+
+    def _clear_human_endpoints(self):
+        self._human_endpoint_points_xy = None
+        self._human_endpoint_radii = None
+        self._human_endpoint_mask = None
+
     def _clip_planar_velocity(self, u_np):
         return np.array([
             np.clip(
@@ -340,6 +461,13 @@ class CmdVelCBFNode(Node):
                 self._lin_vel_y_limits[1],
             ),
         ], dtype=np.float64)
+
+    @staticmethod
+    def _normalize_frame(frame_id):
+        frame = (frame_id or '').strip()
+        if frame.startswith('/'):
+            frame = frame[1:]
+        return frame
 
     @staticmethod
     def _quat_rotate_np(quat_xyzw, vec):
