@@ -11,6 +11,7 @@
     <arg name="vo_frame_id"   default="odom"/>
     <arg name="publish_tf_odom" default="true"/>
     <arg name="wait_imu_to_init" default="false"/>
+    <arg name="odom_args" default="--Reg/Force3DoF true --RGBD/ForceOdom3DoF true --Odom/AlignWithGround true"/>
     <!-- Sync/Visualization -->
     <arg name="approx_sync"              default="false"/>
     <arg name="approx_sync_max_interval" default="0.05"/>
@@ -60,6 +61,7 @@
         <arg name="vo_frame_id" value="$(var vo_frame_id)"/>
         <arg name="publish_tf_odom" value="$(var publish_tf_odom)"/>
         <arg name="args" value="--Grid/MinGroundHeight -0.05 --Grid/MaxObstacleHeight 1.315"/>
+        <arg name="odom_args" value="$(var odom_args)"/>
         <!-- inputs -->
         <arg name="odom_topic" value="$(var odom_topic)"/>
         <arg name="depth" value="false"/>

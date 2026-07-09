@@ -34,6 +34,9 @@ g1_cbf_node:
     head_circle_cbf_enabled: true
     head_collider_radius: 0.1
     world_circle_radius: 1.5
+    world_frame: "world"
+    pelvis_frame: "pelvis"
+    tf_lookup_timeout_sec: 0.0
 
 g1_cbf_viz_node:
   ros__parameters:
@@ -43,6 +46,9 @@ g1_cbf_viz_node:
     sphere_interpolation_level: 1
     sphere_radius_gain: 1.0
     head_collider_radius: 0.15
+    world_frame: "world"
+    pelvis_frame: "pelvis"
+    tf_lookup_timeout_sec: 0.0
 
 cmd_vel_cbf_node:
   ros__parameters:
@@ -57,6 +63,10 @@ cmd_vel_cbf_node:
       lin_vel_x: [-1.0, 2.0]
       lin_vel_y: [-1.0, 1.0]
     state_timeout_sec: 0.2
+    world_frame: "world"
+    pelvis_frame: "pelvis"
+    tf_lookup_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.0
     max_iter: 200
     solver_tol: 0.001
 
@@ -77,6 +87,10 @@ origin_cmd_vel_publisher_node:
     max_linear_y: 0.5
     max_angular_z: 1.0
     pose_timeout_sec: 0.2
+    world_frame: "world"
+    pelvis_frame: "pelvis"
+    tf_lookup_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.0
 
 pelvis_circle_publisher_node:
   ros__parameters:

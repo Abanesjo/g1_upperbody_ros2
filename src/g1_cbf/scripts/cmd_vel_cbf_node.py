@@ -9,7 +9,7 @@ import numpy as np
 import qpax
 import rclpy
 from cbfpy import CBF
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import Twist
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import (
@@ -27,10 +27,16 @@ from g1_cbf.jax_kinematics import (
     N_HUMAN_CAPSULES,
     head_sphere_center_np,
 )
+from g1_cbf.tf_pose import (
+    TfPoseLookup,
+    normalize_frame,
+    resolve_lookup_timeout_sec,
+)
 from g1_cbf_msg.msg import CapsuleArray
 
 
 WORLD_FRAME = 'world'
+PELVIS_FRAME = 'pelvis'
 N_HUMAN_ENDPOINT_SPHERES = 2 * N_HUMAN_CAPSULES
 
 
@@ -48,6 +54,11 @@ class CmdVelCBFNode(Node):
         self.declare_parameter('cmd_vel_limits.lin_vel_x', [-1.0, 2.0])
         self.declare_parameter('cmd_vel_limits.lin_vel_y', [-1.0, 1.0])
         self.declare_parameter('state_timeout_sec', 0.2)
+        self.declare_parameter('world_frame', WORLD_FRAME)
+        self.declare_parameter('pelvis_frame', PELVIS_FRAME)
+        self.declare_parameter('tf_lookup_timeout_sec', 0.0)
+        self.declare_parameter('tf_stale_timeout_sec', 0.0)
+        self.declare_parameter('tf_timeout_sec', 0.0)
         self.declare_parameter('max_iter', 100)
         self.declare_parameter('solver_tol', 1e-3)
 
@@ -74,6 +85,23 @@ class CmdVelCBFNode(Node):
         self._state_timeout_sec = float(
             self.get_parameter('state_timeout_sec').value
         )
+        self._tf_stale_timeout_sec = float(
+            self.get_parameter('tf_stale_timeout_sec').value
+        )
+        self._world_frame = normalize_frame(
+            self.get_parameter('world_frame').value,
+            WORLD_FRAME,
+        )
+        self._pelvis_frame = normalize_frame(
+            self.get_parameter('pelvis_frame').value,
+            PELVIS_FRAME,
+        )
+        self._tf_pose_lookup = TfPoseLookup(
+            self,
+            self._world_frame,
+            self._pelvis_frame,
+            resolve_lookup_timeout_sec(self),
+        )
         self._max_iter = int(self.get_parameter('max_iter').value)
         self._solver_tol = float(self.get_parameter('solver_tol').value)
 
@@ -95,7 +123,6 @@ class CmdVelCBFNode(Node):
         self._latest_cmd = Twist()
         self._pelvis_position = None
         self._pelvis_quat = None
-        self._last_pose_time = None
         self._q_ctrl = None
         self._q_legs = None
         self._last_joint_time = None
@@ -113,9 +140,6 @@ class CmdVelCBFNode(Node):
         )
 
         self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_cb, qos)
-        self.create_subscription(
-            PoseStamped, '/pose/pelvis', self._pelvis_pose_cb, qos,
-        )
         self.create_subscription(
             JointState, '/joint_states', self._joint_states_cb, qos,
         )
@@ -155,6 +179,8 @@ class CmdVelCBFNode(Node):
             raise ValueError('cmd_vel_limits.lin_vel_y min must be <= max')
         if self._state_timeout_sec < 0.0:
             raise ValueError('state_timeout_sec must be non-negative')
+        if self._tf_stale_timeout_sec < 0.0:
+            raise ValueError('tf_stale_timeout_sec must be non-negative')
         if self._max_iter <= 0:
             raise ValueError('max_iter must be positive')
         if self._solver_tol <= 0.0:
@@ -209,20 +235,6 @@ class CmdVelCBFNode(Node):
     def _cmd_vel_cb(self, msg: Twist):
         self._latest_cmd = msg
 
-    def _pelvis_pose_cb(self, msg: PoseStamped):
-        self._pelvis_position = np.array([
-            msg.pose.position.x,
-            msg.pose.position.y,
-            msg.pose.position.z,
-        ], dtype=np.float64)
-        self._pelvis_quat = np.array([
-            msg.pose.orientation.x,
-            msg.pose.orientation.y,
-            msg.pose.orientation.z,
-            msg.pose.orientation.w,
-        ], dtype=np.float64)
-        self._last_pose_time = self.get_clock().now()
-
     def _joint_states_cb(self, msg: JointState):
         name_to_pos = {
             name: msg.position[i]
@@ -252,7 +264,7 @@ class CmdVelCBFNode(Node):
     def _human_colliders_cb(self, msg: CapsuleArray):
         self._human_colliders_received = True
         frame = self._normalize_frame(msg.header.frame_id)
-        if frame != WORLD_FRAME:
+        if frame != self._world_frame:
             self._clear_human_endpoints()
             self.get_logger().warn(
                 f"Unsupported /human/colliders frame '{frame}'; "
@@ -343,22 +355,33 @@ class CmdVelCBFNode(Node):
         self._cmd_pub.publish(safe_msg)
 
     def _state_ready(self):
-        if self._pelvis_position is None or self._pelvis_quat is None:
-            return False, '/pose/pelvis has not been received'
+        pose, reason = self._tf_pose_lookup.lookup()
+        if pose is None:
+            return (
+                False,
+                f'TF {self._tf_pose_lookup.describe()} unavailable: {reason}',
+            )
+        self._pelvis_position = pose.position
+        self._pelvis_quat = pose.quat
+
         if self._q_ctrl is None or self._q_legs is None:
             return False, '/joint_states has not been received'
+        now = self.get_clock().now()
+        if self._tf_stale_timeout_sec > 0.0:
+            pose_age = self._tf_pose_lookup.age_sec(pose)
+            if pose_age is not None and pose_age > self._tf_stale_timeout_sec:
+                return (
+                    False,
+                    f'TF {self._tf_pose_lookup.describe()} stale by '
+                    f'{pose_age:.3f}s',
+                )
+
         if self._state_timeout_sec == 0.0:
             return True, ''
 
-        now = self.get_clock().now()
-        pose_age = (
-            now - self._last_pose_time
-        ).nanoseconds * 1e-9
         joint_age = (
             now - self._last_joint_time
         ).nanoseconds * 1e-9
-        if pose_age > self._state_timeout_sec:
-            return False, f'/pose/pelvis stale by {pose_age:.3f}s'
         if joint_age > self._state_timeout_sec:
             return False, f'/joint_states stale by {joint_age:.3f}s'
         return True, ''
