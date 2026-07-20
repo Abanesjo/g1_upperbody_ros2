@@ -9,6 +9,7 @@
   <arg name="viz" default="true"/>
   <arg name="viz_rate" default="100.0"/>
   <arg name="wbc" default="true"/>
+  <arg name="gravity" default="true"/>
   <arg name="policy_type" default="gru_mlp"/>
   <arg name="area_cbf" default="true"/>
   <arg name="center_seeking" default="true"/>
@@ -31,6 +32,8 @@
         <param name="simulator" value="false"/>
         <param name="mujoco" value="$(var mujoco)"/>
         <param name="wbc" value="$(var wbc)"/>
+        <param name="gravity" value="$(var gravity)"/>
+        <param name="urdf_path" value="$(var urdf_file)"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
       </node>
     </group>
@@ -41,6 +44,8 @@
           <param name="simulator" value="true"/>
           <param name="mujoco" value="true"/>
           <param name="wbc" value="$(var wbc)"/>
+          <param name="gravity" value="$(var gravity)"/>
+          <param name="urdf_path" value="$(var urdf_file)"/>
           <param name="use_sim_time" value="$(var use_sim_time)"/>
         </node>
       </group>

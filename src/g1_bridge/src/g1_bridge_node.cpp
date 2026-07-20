@@ -9,8 +9,10 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "common/motor_crc_hg.h"
+#include "g1_bridge/gravity_compensation.hpp"
 #include "nlohmann/json.hpp"
 #include "rclcpp/executors/single_threaded_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -25,6 +27,7 @@
 namespace {
 
 constexpr std::size_t G1_NUM_MOTOR = 29;
+constexpr std::size_t G1_UPPER_BODY_START = 12;
 constexpr int32_t UT_ROBOT_SUCCESS = 0;
 constexpr int32_t UT_ROBOT_TASK_TIMEOUT = -1;
 constexpr int32_t UT_ROBOT_TASK_UNKNOWN_ERROR = -2;
@@ -41,6 +44,7 @@ constexpr auto MOTION_CALL_TIMEOUT = std::chrono::seconds(5);
 constexpr auto MOTION_DISCOVERY_TIMEOUT = std::chrono::seconds(3);
 constexpr auto MOTION_DISCOVERY_POLL_INTERVAL = std::chrono::milliseconds(50);
 constexpr auto MOTION_RELEASE_RETRY_DELAY = std::chrono::seconds(2);
+constexpr auto GRAVITY_STATE_TIMEOUT = std::chrono::milliseconds(100);
 constexpr char MOTION_SWITCH_REQUEST_TOPIC[] = "/api/motion_switcher/request";
 constexpr char MOTION_SWITCH_RESPONSE_TOPIC[] = "/api/motion_switcher/response";
 
@@ -116,7 +120,31 @@ class G1BridgeNode : public rclcpp::Node {
   G1BridgeNode() : Node("g1_bridge_node") {
     const bool simulator = this->declare_parameter<bool>("simulator", false);
     const bool mujoco = this->declare_parameter<bool>("mujoco", false);
-    const bool wbc = this->declare_parameter<bool>("wbc", true);
+    wbc_ = this->declare_parameter<bool>("wbc", true);
+    const bool gravity =
+        this->declare_parameter<bool>("gravity", true);
+    const auto urdf_path =
+        this->declare_parameter<std::string>("urdf_path", "");
+    gravity_enabled_ = !wbc_ && gravity;
+
+    if (gravity_enabled_) {
+      gravity_compensation_ =
+          std::make_unique<g1_bridge::GravityCompensation>(
+              urdf_path,
+              std::vector<std::string>(JOINT_NAMES.begin(),
+                                       JOINT_NAMES.end()));
+      measured_positions_.resize(G1_NUM_MOTOR);
+      RCLCPP_INFO(this->get_logger(),
+                  "Upper-body gravity compensation enabled");
+    } else if (wbc_) {
+      RCLCPP_INFO(this->get_logger(),
+                  "Gravity compensation inactive while wbc is enabled");
+    } else {
+      RCLCPP_INFO(this->get_logger(),
+                  "Upper-body control uses classical PD without gravity "
+                  "compensation");
+    }
+
     if (simulator) {
       RCLCPP_WARN(this->get_logger(),
                   "Simulator mode enabled - skipping Unitree G1 motion "
@@ -131,9 +159,9 @@ class G1BridgeNode : public rclcpp::Node {
       joint_map_[name] = i;
 
       std::string gain_name = name;
-      if (!wbc && name == "waist_roll_joint") {
+      if (!wbc_ && name == "waist_roll_joint") {
         gain_name = "waist_roll_joint_manual";
-      } else if (!wbc && name == "waist_pitch_joint") {
+      } else if (!wbc_ && name == "waist_pitch_joint") {
         gain_name = "waist_pitch_joint_manual";
       }
 
@@ -414,12 +442,26 @@ class G1BridgeNode : public rclcpp::Node {
   void BuildControlLowCmd(unitree_hg::msg::LowCmd &cmd) {
     cmd.mode_pr = mode_pr_;
     cmd.mode_machine = mode_machine_;
+    const bool gravity_state_fresh =
+        std::chrono::steady_clock::now() - last_lowstate_time_ <=
+        GRAVITY_STATE_TIMEOUT;
+    const bool apply_gravity =
+        gravity_enabled_ && gravity_state_fresh;
+    if (gravity_enabled_ && !gravity_state_fresh) {
+      RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 2000,
+          "LowState is stale; falling back to classical PD without gravity "
+          "feedforward");
+    }
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       auto &motor_cmd = cmd.motor_cmd[i];
       motor_cmd.mode = 1;
       motor_cmd.q = target_positions_[i];
       motor_cmd.dq = target_velocities_[i];
       motor_cmd.tau = target_efforts_[i];
+      if (apply_gravity && i >= G1_UPPER_BODY_START) {
+        motor_cmd.tau += gravity_torques_[i];
+      }
       motor_cmd.kp = static_cast<float>(gains_[i].kp);
       motor_cmd.kd = static_cast<float>(gains_[i].kd);
     }
@@ -429,6 +471,7 @@ class G1BridgeNode : public rclcpp::Node {
     mode_machine_ = msg->mode_machine;
     mode_pr_ = msg->mode_pr;
     has_state_ = true;
+    last_lowstate_time_ = std::chrono::steady_clock::now();
 
     const auto stamp = this->get_clock()->now();
 
@@ -445,6 +488,34 @@ class G1BridgeNode : public rclcpp::Node {
       joint_state.position.push_back(static_cast<double>(motor.q));
       joint_state.velocity.push_back(static_cast<double>(motor.dq));
       joint_state.effort.push_back(static_cast<double>(motor.tau_est));
+      if (gravity_enabled_) {
+        measured_positions_[i] = static_cast<double>(motor.q);
+      }
+    }
+
+    if (gravity_enabled_) {
+      try {
+        const std::array<double, 4> base_orientation = {
+            static_cast<double>(msg->imu_state.quaternion[0]),
+            static_cast<double>(msg->imu_state.quaternion[1]),
+            static_cast<double>(msg->imu_state.quaternion[2]),
+            static_cast<double>(msg->imu_state.quaternion[3]),
+        };
+        const auto &gravity =
+            gravity_compensation_->Compute(base_orientation,
+                                           measured_positions_);
+        gravity_torques_.fill(0.0F);
+        for (std::size_t i = G1_UPPER_BODY_START; i < gravity.size(); ++i) {
+          gravity_torques_[i] = static_cast<float>(gravity[i]);
+        }
+      } catch (const std::exception &e) {
+        gravity_torques_.fill(0.0F);
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 2000,
+            "Failed to compute gravity compensation; using zero "
+            "feedforward: %s",
+            e.what());
+      }
     }
     joint_states_pub_->publish(joint_state);
 
@@ -556,11 +627,17 @@ class G1BridgeNode : public rclcpp::Node {
   std::array<float, G1_NUM_MOTOR> target_positions_{};
   std::array<float, G1_NUM_MOTOR> target_velocities_{};
   std::array<float, G1_NUM_MOTOR> target_efforts_{};
+  std::array<float, G1_NUM_MOTOR> gravity_torques_{};
+  std::vector<double> measured_positions_;
+  std::unique_ptr<g1_bridge::GravityCompensation> gravity_compensation_;
+  std::chrono::steady_clock::time_point last_lowstate_time_{};
   uint8_t mode_machine_{};
   uint8_t mode_pr_{};
   OrchestratorState current_state_{OrchestratorState::kNeutral};
   bool has_state_{false};
   bool has_latest_safe_cmd_{false};
+  bool wbc_{true};
+  bool gravity_enabled_{false};
 };
 
 int main(int argc, char **argv) {
