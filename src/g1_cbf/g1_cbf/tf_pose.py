@@ -51,6 +51,11 @@ class TfPoseLookup:
         self._buffer = Buffer()
         self._listener = TransformListener(self._buffer, node)
 
+    @property
+    def buffer(self):
+        """Underlying TF buffer for other frame-aware inputs on this node."""
+        return self._buffer
+
     def lookup(self):
         try:
             transform = self._buffer.lookup_transform(

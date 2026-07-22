@@ -14,9 +14,19 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
+from tf2_ros import TransformException
 
 from g1_cbf.collider_viz import ColliderVisualizer
-from g1_cbf.jax_kinematics import CONTROLLED_JOINTS, LEG_JOINTS
+from g1_cbf.human_capsules import (
+    human_data_is_fresh,
+    human_data_time,
+    transform_capsule_array,
+)
+from g1_cbf.jax_kinematics import (
+    CONTROLLED_JOINTS,
+    LEG_JOINTS,
+    N_HUMAN_CAPSULES,
+)
 from g1_cbf.tf_pose import (
     TfPoseLookup,
     normalize_frame,
@@ -48,12 +58,14 @@ class G1CBFVizNode(Node):
         self.declare_parameter('head_collider_radius', 0.3)
         self.declare_parameter('world_frame', WORLD_FRAME)
         self.declare_parameter('pelvis_frame', PELVIS_FRAME)
+        self.declare_parameter('human_timeout_sec', 0.5)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
         self.declare_parameter('tf_timeout_sec', 0.0)
 
         self.q_ctrl = None
         self.q_legs = np.zeros(len(LEG_JOINTS))
         self._human_capsules = []
+        self._last_human_time = None
         self._world_frame = normalize_frame(
             self.get_parameter('world_frame').value,
             WORLD_FRAME,
@@ -62,7 +74,11 @@ class G1CBFVizNode(Node):
             self.get_parameter('pelvis_frame').value,
             PELVIS_FRAME,
         )
-        self._human_capsules_frame = self._pelvis_frame
+        self._human_timeout_sec = float(
+            self.get_parameter('human_timeout_sec').value
+        )
+        if self._human_timeout_sec < 0.0:
+            raise ValueError('human_timeout_sec must be non-negative')
         self._tf_pose_lookup = TfPoseLookup(
             self,
             self._world_frame,
@@ -122,15 +138,33 @@ class G1CBFVizNode(Node):
         self.q_legs = ql
 
     def _human_cb(self, msg: CapsuleArray):
+        try:
+            msg_world = transform_capsule_array(
+                msg,
+                self._world_frame,
+                self._tf_pose_lookup.buffer,
+            )
+        except (TransformException, ValueError) as exc:
+            self.get_logger().warn(
+                f"Invalid /human/colliders transform from "
+                f"'{msg.header.frame_id}' to '{self._world_frame}': {exc}; "
+                'keeping the last valid capsules',
+                throttle_duration_sec=2.0,
+            )
+            return
+
         capsules = []
-        for c in msg.capsules:
+        for c in msg_world.capsules[:N_HUMAN_CAPSULES]:
             capsules.append({
                 'a': np.array([c.a.x, c.a.y, c.a.z]),
                 'b': np.array([c.b.x, c.b.y, c.b.z]),
                 'radius': float(c.radius),
             })
         self._human_capsules = capsules
-        self._human_capsules_frame = self._normalize_frame(msg.header.frame_id)
+        self._last_human_time = human_data_time(
+            msg_world.header.stamp,
+            self.get_clock().now(),
+        )
 
     def _active_pairs_cb(self, msg: ActiveCollisionPairs):
         external_pairs = []
@@ -168,45 +202,29 @@ class G1CBFVizNode(Node):
             return
 
         stamp = Time()
-        human_capsules = self._human_capsules_for_viz()
+        human_capsules = self._human_capsules_for_viz(
+            self._current_human_capsules()
+        )
         self.viz.publish(stamp, self.q_ctrl, self.q_legs)
         self.viz.publish_distances(
             stamp, self.q_ctrl, human_capsules or None, self.q_legs,
             self._active_external_pairs, self._active_internal_pairs,
         )
 
-    def _human_capsules_for_viz(self):
+    def _human_capsules_for_viz(self, human_capsules_world):
         capsules = []
-        pelvis_pose = None
-        if self._human_capsules_frame == self._world_frame:
-            pelvis_pose = self._lookup_pelvis_pose()
-            if pelvis_pose is None:
-                return capsules
-        for capsule in self._human_capsules:
-            a, b = self._capsule_endpoints_in_pelvis(capsule, pelvis_pose)
+        if not human_capsules_world:
+            return capsules
+        pelvis_pose = self._lookup_pelvis_pose()
+        if pelvis_pose is None:
+            return capsules
+        for capsule in human_capsules_world:
             capsules.append({
-                'a': a,
-                'b': b,
+                'a': self._world_to_pelvis(capsule['a'], pelvis_pose),
+                'b': self._world_to_pelvis(capsule['b'], pelvis_pose),
                 'radius': capsule['radius'],
             })
         return capsules
-
-    def _capsule_endpoints_in_pelvis(self, capsule, pelvis_pose):
-        frame = self._human_capsules_frame
-        a = capsule['a']
-        b = capsule['b']
-        if frame == self._world_frame:
-            return (
-                self._world_to_pelvis(a, pelvis_pose),
-                self._world_to_pelvis(b, pelvis_pose),
-            )
-        if frame not in ('', self._pelvis_frame):
-            self.get_logger().warn(
-                f"Unsupported /human/colliders frame '{frame}'; "
-                "treating capsules as pelvis-frame coordinates",
-                throttle_duration_sec=2.0,
-            )
-        return a, b
 
     def _world_to_pelvis(self, point_world, pelvis_pose):
         return self._quat_rotate_np(
@@ -226,8 +244,17 @@ class G1CBFVizNode(Node):
             )
         return pose
 
-    def _normalize_frame(self, frame_id):
-        return normalize_frame(frame_id, self._pelvis_frame)
+    def _current_human_capsules(self):
+        if not self._human_capsules:
+            return []
+        now = self.get_clock().now()
+        if human_data_is_fresh(
+            self._last_human_time,
+            now,
+            self._human_timeout_sec,
+        ):
+            return self._human_capsules
+        return []
 
     @staticmethod
     def _normalize_quat(q):

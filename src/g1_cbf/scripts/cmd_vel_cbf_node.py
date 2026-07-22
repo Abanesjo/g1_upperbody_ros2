@@ -19,8 +19,14 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import JointState
+from tf2_ros import TransformException
 
 from g1_cbf.cbf_config import G1CmdVelCBFConfig
+from g1_cbf.human_capsules import (
+    human_data_is_fresh,
+    human_data_time,
+    transform_capsule_array,
+)
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
     LEG_JOINTS,
@@ -54,6 +60,7 @@ class CmdVelCBFNode(Node):
         self.declare_parameter('cmd_vel_limits.lin_vel_x', [-1.0, 2.0])
         self.declare_parameter('cmd_vel_limits.lin_vel_y', [-1.0, 1.0])
         self.declare_parameter('state_timeout_sec', 0.2)
+        self.declare_parameter('human_timeout_sec', 0.5)
         self.declare_parameter('world_frame', WORLD_FRAME)
         self.declare_parameter('pelvis_frame', PELVIS_FRAME)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
@@ -84,6 +91,9 @@ class CmdVelCBFNode(Node):
         )
         self._state_timeout_sec = float(
             self.get_parameter('state_timeout_sec').value
+        )
+        self._human_timeout_sec = float(
+            self.get_parameter('human_timeout_sec').value
         )
         self._tf_stale_timeout_sec = float(
             self.get_parameter('tf_stale_timeout_sec').value
@@ -130,7 +140,6 @@ class CmdVelCBFNode(Node):
         self._human_endpoint_radii = None
         self._human_endpoint_mask = None
         self._last_human_time = None
-        self._human_colliders_received = False
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -179,6 +188,8 @@ class CmdVelCBFNode(Node):
             raise ValueError('cmd_vel_limits.lin_vel_y min must be <= max')
         if self._state_timeout_sec < 0.0:
             raise ValueError('state_timeout_sec must be non-negative')
+        if self._human_timeout_sec < 0.0:
+            raise ValueError('human_timeout_sec must be non-negative')
         if self._tf_stale_timeout_sec < 0.0:
             raise ValueError('tf_stale_timeout_sec must be non-negative')
         if self._max_iter <= 0:
@@ -262,14 +273,26 @@ class CmdVelCBFNode(Node):
         self._last_joint_time = self.get_clock().now()
 
     def _human_colliders_cb(self, msg: CapsuleArray):
-        self._human_colliders_received = True
-        frame = self._normalize_frame(msg.header.frame_id)
-        if frame != self._world_frame:
-            self._clear_human_endpoints()
+        try:
+            msg_world = transform_capsule_array(
+                msg,
+                self._world_frame,
+                self._tf_pose_lookup.buffer,
+            )
+        except (TransformException, ValueError) as exc:
             self.get_logger().warn(
-                f"Unsupported /human/colliders frame '{frame}'; "
-                'head-vs-human cmd_vel CBF disabled for this tick',
+                f"Invalid /human/colliders transform from "
+                f"'{msg.header.frame_id}' to '{self._world_frame}': {exc}; "
+                'keeping the last valid capsules',
                 throttle_duration_sec=2.0,
+            )
+            return
+
+        if not msg_world.capsules:
+            self._clear_human_endpoints()
+            self._last_human_time = human_data_time(
+                msg_world.header.stamp,
+                self.get_clock().now(),
             )
             return
 
@@ -279,41 +302,28 @@ class CmdVelCBFNode(Node):
         )
         radii = np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=np.float64)
         mask = np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=bool)
-        valid_capsules = 0
 
-        for i, capsule in enumerate(msg.capsules[:N_HUMAN_CAPSULES]):
+        for i, capsule in enumerate(
+            msg_world.capsules[:N_HUMAN_CAPSULES]
+        ):
             endpoint_xy = np.array([
                 [capsule.a.x, capsule.a.y],
                 [capsule.b.x, capsule.b.y],
             ], dtype=np.float64)
             radius = float(capsule.radius)
-            if radius <= 0.0 or not np.all(np.isfinite(endpoint_xy)):
-                self.get_logger().warn(
-                    'Invalid capsule on /human/colliders; skipping it for '
-                    'head-vs-human cmd_vel CBF',
-                    throttle_duration_sec=2.0,
-                )
-                continue
 
             slot = 2 * i
             points_xy[slot:slot + 2] = endpoint_xy
             radii[slot:slot + 2] = radius
             mask[slot:slot + 2] = True
-            valid_capsules += 1
-
-        if valid_capsules == 0:
-            self._clear_human_endpoints()
-            self.get_logger().warn(
-                '/human/colliders contained no valid capsules; '
-                'head-vs-human cmd_vel CBF disabled for this tick',
-                throttle_duration_sec=2.0,
-            )
-            return
 
         self._human_endpoint_points_xy = points_xy
         self._human_endpoint_radii = radii
         self._human_endpoint_mask = mask
-        self._last_human_time = self.get_clock().now()
+        self._last_human_time = human_data_time(
+            msg_world.header.stamp,
+            self.get_clock().now(),
+        )
 
     def _tick(self):
         cmd = self._latest_cmd
@@ -440,25 +450,23 @@ class CmdVelCBFNode(Node):
             or self._human_endpoint_radii is None
             or self._human_endpoint_mask is None
         ):
-            if self._human_colliders_received:
-                self.get_logger().warn(
-                    'No valid capsules available from /human/colliders; '
-                    'head-vs-human cmd_vel CBF disabled for this tick',
-                    throttle_duration_sec=2.0,
-                )
             return disabled
 
-        if self._state_timeout_sec > 0.0 and self._last_human_time is not None:
+        now = self.get_clock().now()
+        if not human_data_is_fresh(
+            self._last_human_time,
+            now,
+            self._human_timeout_sec,
+        ):
             age = (
-                self.get_clock().now() - self._last_human_time
+                now - self._last_human_time
             ).nanoseconds * 1e-9
-            if age > self._state_timeout_sec:
-                self.get_logger().warn(
-                    f'/human/colliders stale by {age:.3f}s; '
-                    'head-vs-human cmd_vel CBF disabled for this tick',
-                    throttle_duration_sec=2.0,
-                )
-                return disabled
+            self.get_logger().warn(
+                f'/human/colliders stale by {age:.3f}s; '
+                'head-vs-human cmd_vel CBF disabled for this tick',
+                throttle_duration_sec=2.0,
+            )
+            return disabled
 
         return (
             self._human_endpoint_points_xy,
@@ -484,13 +492,6 @@ class CmdVelCBFNode(Node):
                 self._lin_vel_y_limits[1],
             ),
         ], dtype=np.float64)
-
-    @staticmethod
-    def _normalize_frame(frame_id):
-        frame = (frame_id or '').strip()
-        if frame.startswith('/'):
-            frame = frame[1:]
-        return frame
 
     @staticmethod
     def _quat_rotate_np(quat_xyzw, vec):
