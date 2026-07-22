@@ -33,7 +33,7 @@ g1_cbf_node:
     area_cbf: true
     head_circle_cbf_enabled: true
     head_collider_radius: 0.1
-    world_circle_radius: 1.5
+    world_circle_radius: 2.0
     world_frame: "world"
     pelvis_frame: "pelvis"
     human_timeout_sec: 0.5
@@ -57,10 +57,10 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.5
-    external_gamma: 1.0
+    external_margin_phi: 0.75
+    external_gamma: 0.5
     head_collider_radius: 0.3
-    world_circle_radius: 1.5
+    world_circle_radius: 2.0
     cmd_vel_limits:
       lin_vel_x: [-1.0, 2.0]
       lin_vel_y: [-1.0, 1.0]
@@ -97,5 +97,5 @@ origin_cmd_vel_publisher_node:
 
 pelvis_circle_publisher_node:
   ros__parameters:
-    world_circle_radius: 1.5
+    world_circle_radius: 2.0
     height: 0.5

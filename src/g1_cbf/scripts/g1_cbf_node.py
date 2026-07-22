@@ -16,6 +16,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool
 from tf2_ros import TransformException
 
 from cbfpy import CBF
@@ -306,6 +307,7 @@ class G1CBFNode(Node):
         self.q_des_latest = None
         self.q_des_filtered = None
         self.q_cbf_target = None
+        self._cbf_enabled = True
         self._human_capsules = []
         self._last_human_time = None
 
@@ -313,6 +315,12 @@ class G1CBFNode(Node):
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        cbf_enabled_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
@@ -329,6 +337,10 @@ class G1CBFNode(Node):
         self.create_subscription(
             CapsuleArray, '/human/colliders',
             self._human_cb, sensor_qos,
+        )
+        self.create_subscription(
+            Bool, '/cbf/enabled',
+            self._cbf_enabled_cb, cbf_enabled_qos,
         )
 
         # Publisher
@@ -414,12 +426,31 @@ class G1CBFNode(Node):
             self.get_clock().now(),
         )
 
+    def _cbf_enabled_cb(self, msg: Bool):
+        enabled = bool(msg.data)
+        if enabled == self._cbf_enabled:
+            return
+
+        self._cbf_enabled = enabled
+        if self.q_ctrl is not None:
+            self.q_cbf_target = self.q_ctrl.copy()
+        self.q_des_filtered = None
+        state = 'enabled' if enabled else 'disabled'
+        self.get_logger().info(f'CBF safety filter {state}')
+
     # ------------------------------------------------------------------
     # Main control loop
     # ------------------------------------------------------------------
 
     def _tick(self):
-        if self.q_ctrl is None or self.q_des_latest is None:
+        if self.q_ctrl is None:
+            return
+
+        if not self._cbf_enabled:
+            self._publish_disabled_command()
+            return
+
+        if self.q_des_latest is None:
             return
 
         dt = self.get_parameter('dt').value
@@ -521,6 +552,28 @@ class G1CBFNode(Node):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _publish_disabled_command(self):
+        """Follow measured joints directly while bypassing every CBF."""
+        self.q_cbf_target = self.q_ctrl.copy()
+        self.q_des_filtered = None
+
+        safe_msg = JointState()
+        safe_msg.header.stamp = self.get_clock().now().to_msg()
+        safe_msg.name = list(CONTROLLED_JOINTS)
+        safe_msg.position = self.q_ctrl.tolist()
+        safe_msg.velocity = np.zeros_like(self.q_ctrl).tolist()
+
+        self._publish_empty_active_pairs(safe_msg.header.stamp)
+        self.cmd_pub.publish(safe_msg)
+
+    def _publish_empty_active_pairs(self, stamp):
+        if self.active_pairs_pub.get_subscription_count() == 0:
+            return
+        msg = ActiveCollisionPairs()
+        msg.header.stamp = stamp
+        msg.header.frame_id = 'pelvis'
+        self.active_pairs_pub.publish(msg)
 
     def _pack_human_capsules(self, pelvis_pose, human_capsules):
         """Pack human capsules into fixed-size jnp arrays."""

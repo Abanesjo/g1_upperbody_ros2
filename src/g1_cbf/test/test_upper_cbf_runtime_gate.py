@@ -1,0 +1,99 @@
+import importlib.util
+from pathlib import Path
+from types import MethodType, SimpleNamespace
+
+import numpy as np
+import pytest
+from rclpy.time import Time
+from std_msgs.msg import Bool
+
+
+_SCRIPT = Path(__file__).parents[1] / 'scripts' / 'g1_cbf_node.py'
+_SPEC = importlib.util.spec_from_file_location('g1_cbf_node_script', _SCRIPT)
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+
+
+class _Publisher:
+    def __init__(self):
+        self.messages = []
+
+    def get_subscription_count(self):
+        return 1
+
+    def publish(self, msg):
+        self.messages.append(msg)
+
+
+class _Logger:
+    def __init__(self):
+        self.messages = []
+
+    def info(self, message):
+        self.messages.append(message)
+
+
+def test_disabled_tick_bypasses_qp_and_follows_measured_joints():
+    measured = np.linspace(-0.5, 0.5, len(_MODULE.CONTROLLED_JOINTS))
+    command_pub = _Publisher()
+    active_pairs_pub = _Publisher()
+    node = SimpleNamespace(
+        q_ctrl=measured,
+        q_des_latest=None,
+        q_des_filtered=np.ones_like(measured),
+        q_cbf_target=np.full_like(measured, 9.0),
+        _cbf_enabled=False,
+        cmd_pub=command_pub,
+        active_pairs_pub=active_pairs_pub,
+        get_clock=lambda: SimpleNamespace(now=lambda: Time(seconds=12.0)),
+    )
+    node._publish_empty_active_pairs = MethodType(
+        _MODULE.G1CBFNode._publish_empty_active_pairs,
+        node,
+    )
+    node._publish_disabled_command = MethodType(
+        _MODULE.G1CBFNode._publish_disabled_command,
+        node,
+    )
+
+    # The test double intentionally has no CBF solver or parameters. Reaching
+    # either would fail, proving the disabled branch returns before the QP.
+    _MODULE.G1CBFNode._tick(node)
+
+    assert node.q_cbf_target == pytest.approx(measured)
+    assert node.q_cbf_target is not measured
+    assert node.q_des_filtered is None
+    assert len(command_pub.messages) == 1
+    command = command_pub.messages[0]
+    assert command.name == list(_MODULE.CONTROLLED_JOINTS)
+    assert command.position == pytest.approx(measured)
+    assert command.velocity == pytest.approx(np.zeros_like(measured))
+
+    assert len(active_pairs_pub.messages) == 1
+    active_pairs = active_pairs_pub.messages[0]
+    assert active_pairs.header.frame_id == 'pelvis'
+    assert not active_pairs.robot_body_index
+    assert not active_pairs.internal_body_a_index
+
+
+def test_reenable_resets_filter_target_to_current_measurement():
+    measured = np.linspace(-0.25, 0.25, len(_MODULE.CONTROLLED_JOINTS))
+    latest_unsafe = np.linspace(0.5, 1.0, len(_MODULE.CONTROLLED_JOINTS))
+    logger = _Logger()
+    node = SimpleNamespace(
+        _cbf_enabled=False,
+        q_ctrl=measured,
+        q_cbf_target=np.full_like(measured, 9.0),
+        q_des_filtered=np.full_like(measured, 8.0),
+        q_des_latest=latest_unsafe,
+        get_logger=lambda: logger,
+    )
+
+    _MODULE.G1CBFNode._cbf_enabled_cb(node, Bool(data=True))
+
+    assert node._cbf_enabled
+    assert node.q_cbf_target == pytest.approx(measured)
+    assert node.q_cbf_target is not measured
+    assert node.q_des_filtered is None
+    assert node.q_des_latest is latest_unsafe
+    assert logger.messages == ['CBF safety filter enabled']

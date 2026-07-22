@@ -67,6 +67,7 @@ install(TARGETS
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
   ament_add_gtest(test_gravity_compensation
     test/test_gravity_compensation.cpp
   )
@@ -74,6 +75,16 @@ if(BUILD_TESTING)
     G1_BRIDGE_TEST_URDF="${CMAKE_CURRENT_SOURCE_DIR}/test/gravity_pendulum.urdf"
   )
   target_link_libraries(test_gravity_compensation gravity_compensation)
+
+  ament_add_pytest_test(test_orchestrator_cbf_toggle
+    test/test_orchestrator_cbf_toggle.py
+    TIMEOUT 20
+  )
+
+  ament_add_pytest_test(test_bridge_gravity_modes
+    test/test_bridge_gravity_modes.py
+    TIMEOUT 20
+  )
 endif()
 
 ament_package()

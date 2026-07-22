@@ -24,20 +24,21 @@ JOINTS = {
         ("waist_pitch_joint", 14, -0.416, 0.416, 0.0),
     ],
     "Left Arm": [
-        ("left_shoulder_pitch_joint", 15, -2.471, 2.136, 0.35),
-        ("left_shoulder_roll_joint",  16, -1.271, 1.801, 0.18),
+        ("left_shoulder_pitch_joint", 15, -2.471, 2.136, 0.37),
+        ("left_shoulder_roll_joint",  16, -1.271, 1.801, 0.62),
         ("left_shoulder_yaw_joint",   17, -2.094, 2.094, 0.0),
-        ("left_elbow_joint",          18, -0.838, 1.676, 0.87),
+        ("left_elbow_joint",          18, -0.838, 1.676, 0.82),
     ],
     "Right Arm": [
-        ("right_shoulder_pitch_joint", 22, -2.471, 2.136, 0.35),
-        ("right_shoulder_roll_joint",  23, -1.801, 1.271, -0.18),
+        ("right_shoulder_pitch_joint", 22, -2.471, 2.136, 0.33),
+        ("right_shoulder_roll_joint",  23, -1.801, 1.271, -0.67),
         ("right_shoulder_yaw_joint",   24, -2.094, 2.094, 0.0),
-        ("right_elbow_joint",          25, -0.838, 1.676, 0.87),
+        ("right_elbow_joint",          25, -0.838, 1.676, 1.01),
     ],
 }
 
 SLIDER_RESOLUTION = 1000  # steps per slider
+
 
 class JointCommandGui(QWidget):
     def __init__(self, node):

@@ -50,6 +50,12 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_human_capsules
     test/test_human_capsules.py
   )
+  ament_add_pytest_test(test_cmd_vel_cbf_enabled
+    test/test_cmd_vel_cbf_enabled.py
+  )
+  ament_add_pytest_test(test_upper_cbf_runtime_gate
+    test/test_upper_cbf_runtime_gate.py
+  )
 endif()
 
 ament_package()

@@ -135,7 +135,8 @@ class G1BridgeNode : public rclcpp::Node {
                                        JOINT_NAMES.end()));
       measured_positions_.resize(G1_NUM_MOTOR);
       RCLCPP_INFO(this->get_logger(),
-                  "Upper-body gravity compensation enabled");
+                  "Upper-body gravity compensation enabled in neutral and "
+                  "control modes");
     } else if (wbc_) {
       RCLCPP_INFO(this->get_logger(),
                   "Gravity compensation inactive while wbc is enabled");
@@ -411,6 +412,27 @@ class G1BridgeNode : public rclcpp::Node {
     return true;
   }
 
+  void ApplyGravityFeedforward(unitree_hg::msg::LowCmd &cmd) {
+    if (!gravity_enabled_) {
+      return;
+    }
+
+    const bool gravity_state_fresh =
+        std::chrono::steady_clock::now() - last_lowstate_time_ <=
+        GRAVITY_STATE_TIMEOUT;
+    if (!gravity_state_fresh) {
+      RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 2000,
+          "LowState is stale; falling back to classical PD without gravity "
+          "feedforward");
+      return;
+    }
+
+    for (std::size_t i = G1_UPPER_BODY_START; i < JOINT_NAMES.size(); ++i) {
+      cmd.motor_cmd[i].tau += gravity_torques_[i];
+    }
+  }
+
   void BuildNeutralLowCmd(unitree_hg::msg::LowCmd &cmd) {
     cmd.mode_pr = MODE_PR;
     cmd.mode_machine = mode_machine_;
@@ -423,6 +445,7 @@ class G1BridgeNode : public rclcpp::Node {
       motor_cmd.kp = (i < 13) ? NEUTRAL_LEG_KP : NEUTRAL_UPPER_KP;
       motor_cmd.kd = NEUTRAL_KD;
     }
+    ApplyGravityFeedforward(cmd);
   }
 
   void BuildDampLowCmd(unitree_hg::msg::LowCmd &cmd) {
@@ -442,29 +465,16 @@ class G1BridgeNode : public rclcpp::Node {
   void BuildControlLowCmd(unitree_hg::msg::LowCmd &cmd) {
     cmd.mode_pr = mode_pr_;
     cmd.mode_machine = mode_machine_;
-    const bool gravity_state_fresh =
-        std::chrono::steady_clock::now() - last_lowstate_time_ <=
-        GRAVITY_STATE_TIMEOUT;
-    const bool apply_gravity =
-        gravity_enabled_ && gravity_state_fresh;
-    if (gravity_enabled_ && !gravity_state_fresh) {
-      RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 2000,
-          "LowState is stale; falling back to classical PD without gravity "
-          "feedforward");
-    }
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       auto &motor_cmd = cmd.motor_cmd[i];
       motor_cmd.mode = 1;
       motor_cmd.q = target_positions_[i];
       motor_cmd.dq = target_velocities_[i];
       motor_cmd.tau = target_efforts_[i];
-      if (apply_gravity && i >= G1_UPPER_BODY_START) {
-        motor_cmd.tau += gravity_torques_[i];
-      }
       motor_cmd.kp = static_cast<float>(gains_[i].kp);
       motor_cmd.kd = static_cast<float>(gains_[i].kd);
     }
+    ApplyGravityFeedforward(cmd);
   }
 
   void LowStateCallback(const unitree_hg::msg::LowState::SharedPtr msg) {

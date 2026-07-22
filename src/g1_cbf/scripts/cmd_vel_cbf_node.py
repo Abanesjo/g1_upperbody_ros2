@@ -19,6 +19,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool
 from tf2_ros import TransformException
 
 from g1_cbf.cbf_config import G1CmdVelCBFConfig
@@ -140,10 +141,17 @@ class CmdVelCBFNode(Node):
         self._human_endpoint_radii = None
         self._human_endpoint_mask = None
         self._last_human_time = None
+        self._cbf_enabled = True
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        cbf_enable_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
@@ -154,6 +162,9 @@ class CmdVelCBFNode(Node):
         )
         self.create_subscription(
             CapsuleArray, '/human/colliders', self._human_colliders_cb, qos,
+        )
+        self.create_subscription(
+            Bool, '/cbf/enabled', self._cbf_enabled_cb, cbf_enable_qos,
         )
         self._cmd_pub = self.create_publisher(
             Twist, '/cmd_vel_safe', qos,
@@ -246,6 +257,9 @@ class CmdVelCBFNode(Node):
     def _cmd_vel_cb(self, msg: Twist):
         self._latest_cmd = msg
 
+    def _cbf_enabled_cb(self, msg: Bool):
+        self._cbf_enabled = bool(msg.data)
+
     def _joint_states_cb(self, msg: JointState):
         name_to_pos = {
             name: msg.position[i]
@@ -336,7 +350,7 @@ class CmdVelCBFNode(Node):
         cmd_vel_cbf_enabled = bool(
             self.get_parameter('cmd_vel_cbf_enabled').value
         )
-        if not area_cbf or not cmd_vel_cbf_enabled:
+        if not self._cbf_enabled or not area_cbf or not cmd_vel_cbf_enabled:
             safe_xy = self._clip_planar_velocity(
                 np.array([cmd.linear.x, cmd.linear.y], dtype=np.float64)
             )

@@ -4,15 +4,15 @@
   <arg name="ghost" default="true"/>
   <arg name="bridge" default="true"/>
   <arg name="simulator" default="false"/>
-  <arg name="mujoco" default="false"/>
+  <arg name="mujoco" default="true"/>
   <arg name="use_sim_time" default="false"/>
   <arg name="viz" default="true"/>
   <arg name="viz_rate" default="100.0"/>
-  <arg name="wbc" default="true"/>
+  <arg name="wbc" default="false"/>
   <arg name="gravity" default="true"/>
   <arg name="policy_type" default="gru_mlp"/>
   <arg name="area_cbf" default="true"/>
-  <arg name="center_seeking" default="true"/>
+  <arg name="center_seeking" default="false"/>
   <arg name="initial_mode" default="neutral"/>
 
   <!-- ==================== g1_bridge ==================== -->

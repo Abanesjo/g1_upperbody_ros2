@@ -17,5 +17,5 @@
         <param name="use_sim_time" value="$(var use_sim_time)"/>
     </node>
 
-    <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml"/>
+    <!-- <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml"/> -->
 </launch>

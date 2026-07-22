@@ -9,11 +9,15 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 
 namespace {
 
 constexpr std::size_t G1_NUM_MOTOR = 29;
+constexpr std::size_t G1_UPPER_BODY_START_INDEX = 12;
+constexpr int JOY_CBF_DISABLE_BUTTON = 1;
+constexpr int JOY_CBF_ENABLE_BUTTON = 2;
 constexpr int JOY_DAMP_BUTTON = 4;
 constexpr int JOY_CONTROL_TOGGLE_BUTTON = 5;
 constexpr double NEUTRAL_DURATION_SECONDS = 3.0;
@@ -70,6 +74,7 @@ class G1OrchestratorNode : public rclcpp::Node {
                   "Unknown initial_mode '%s', defaulting to neutral",
                   initial_mode.c_str());
     }
+    cbf_enabled_ = state_ == OrchestratorState::kControl;
 
     auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1))
                           .best_effort()
@@ -83,6 +88,12 @@ class G1OrchestratorNode : public rclcpp::Node {
         this->create_publisher<std_msgs::msg::String>(
             "/orchestrator/state",
             rclcpp::QoS(1).transient_local());
+    cbf_enabled_pub_ =
+        this->create_publisher<std_msgs::msg::Bool>(
+            "/cbf/enabled",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .transient_local());
 
     joint_cmd_sub_ =
         this->create_subscription<sensor_msgs::msg::JointState>(
@@ -108,6 +119,7 @@ class G1OrchestratorNode : public rclcpp::Node {
         [this] { PublishOrchestratedCommand(); });
 
     PublishState();
+    PublishCbfEnabled();
 
     RCLCPP_INFO(this->get_logger(), "G1 orchestrator node started");
   }
@@ -132,6 +144,7 @@ class G1OrchestratorNode : public rclcpp::Node {
     if (new_state == state_) {
       return;
     }
+    SetCbfEnabled(new_state == OrchestratorState::kControl);
     state_ = new_state;
     PublishState();
   }
@@ -150,6 +163,32 @@ class G1OrchestratorNode : public rclcpp::Node {
         break;
     }
     state_pub_->publish(msg);
+  }
+
+  void PublishCbfEnabled() {
+    std_msgs::msg::Bool msg;
+    msg.data = cbf_enabled_;
+    cbf_enabled_pub_->publish(msg);
+  }
+
+  void StartUpperNeutralRamp(const rclcpp::Time &now) {
+    upper_neutral_start_positions_ = current_positions_;
+    upper_neutral_start_time_ = now;
+    upper_neutral_ramp_active_ = true;
+  }
+
+  void SetCbfEnabled(bool enabled) {
+    if (enabled == cbf_enabled_) {
+      return;
+    }
+
+    cbf_enabled_ = enabled;
+    if (enabled) {
+      upper_neutral_ramp_active_ = false;
+    } else {
+      StartUpperNeutralRamp(this->get_clock()->now());
+    }
+    PublishCbfEnabled();
   }
 
   void StartNeutralRamp(const rclcpp::Time &now) {
@@ -172,6 +211,35 @@ class G1OrchestratorNode : public rclcpp::Node {
 
     if (state_ == OrchestratorState::kDamp) {
       return;
+    }
+
+    const bool cbf_disable_pressed =
+        IsButtonPressed(*msg, JOY_CBF_DISABLE_BUTTON);
+    const bool cbf_enable_pressed =
+        IsButtonPressed(*msg, JOY_CBF_ENABLE_BUTTON);
+    const bool cbf_disable_rising_edge =
+        cbf_disable_pressed && !last_cbf_disable_button_pressed_;
+    const bool cbf_enable_rising_edge =
+        cbf_enable_pressed && !last_cbf_enable_button_pressed_;
+    last_cbf_disable_button_pressed_ = cbf_disable_pressed;
+    last_cbf_enable_button_pressed_ = cbf_enable_pressed;
+
+    if (state_ == OrchestratorState::kControl) {
+      // Enabling wins when both buttons rise in the same Joy message.
+      if (cbf_enable_rising_edge) {
+        if (!cbf_enabled_) {
+          SetCbfEnabled(true);
+          RCLCPP_INFO(this->get_logger(),
+                      "Joy button[%d] pressed - enabling all CBFs",
+                      JOY_CBF_ENABLE_BUTTON);
+        }
+      } else if (cbf_disable_rising_edge && cbf_enabled_) {
+        SetCbfEnabled(false);
+        RCLCPP_WARN(this->get_logger(),
+                    "Joy button[%d] pressed - disabling all CBFs and "
+                    "moving the upper body to neutral",
+                    JOY_CBF_DISABLE_BUTTON);
+      }
     }
 
     const bool control_pressed =
@@ -229,6 +297,9 @@ class G1OrchestratorNode : public rclcpp::Node {
       target_velocities_.fill(0.0F);
       target_efforts_.fill(0.0F);
       if (state_ == OrchestratorState::kControl) {
+        if (!cbf_enabled_) {
+          StartUpperNeutralRamp(this->get_clock()->now());
+        }
         RCLCPP_INFO(this->get_logger(),
                     "Received first /joint_states - starting in control mode");
       } else if (state_ == OrchestratorState::kDamp) {
@@ -314,12 +385,36 @@ class G1OrchestratorNode : public rclcpp::Node {
     }
   }
 
-  void BuildControlCommand(sensor_msgs::msg::JointState &cmd) {
+  void BuildControlCommand(sensor_msgs::msg::JointState &cmd,
+                           const rclcpp::Time &now) {
+    double upper_neutral_ratio = 1.0;
+    if (!cbf_enabled_ && upper_neutral_ramp_active_) {
+      upper_neutral_ratio = Clamp(
+          (now - upper_neutral_start_time_).seconds() /
+              NEUTRAL_DURATION_SECONDS,
+          0.0, 1.0);
+      if (upper_neutral_ratio >= 1.0) {
+        upper_neutral_ramp_active_ = false;
+      }
+    }
+
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       cmd.name.push_back(JOINT_NAMES[i]);
-      cmd.position.push_back(static_cast<double>(target_positions_[i]));
-      cmd.velocity.push_back(static_cast<double>(target_velocities_[i]));
-      cmd.effort.push_back(static_cast<double>(target_efforts_[i]));
+      if (cbf_enabled_ || i < G1_UPPER_BODY_START_INDEX) {
+        cmd.position.push_back(static_cast<double>(target_positions_[i]));
+        cmd.velocity.push_back(static_cast<double>(target_velocities_[i]));
+        cmd.effort.push_back(static_cast<double>(target_efforts_[i]));
+      } else {
+        cmd.position.push_back(
+            upper_neutral_ramp_active_
+                ? static_cast<double>(
+                      (1.0 - upper_neutral_ratio) *
+                          upper_neutral_start_positions_[i] +
+                      upper_neutral_ratio * DEFAULT_JOINT_POS[i])
+                : static_cast<double>(DEFAULT_JOINT_POS[i]));
+        cmd.velocity.push_back(0.0);
+        cmd.effort.push_back(0.0);
+      }
     }
   }
 
@@ -338,9 +433,9 @@ class G1OrchestratorNode : public rclcpp::Node {
     if (state_ == OrchestratorState::kDamp) {
       BuildDampCommand(cmd);
     } else if (state_ == OrchestratorState::kControl) {
-      BuildControlCommand(cmd);
+      BuildControlCommand(cmd, cmd.header.stamp);
     } else {
-      BuildNeutralCommand(cmd, this->get_clock()->now());
+      BuildNeutralCommand(cmd, cmd.header.stamp);
     }
 
     safe_cmd_pub_->publish(cmd);
@@ -348,6 +443,7 @@ class G1OrchestratorNode : public rclcpp::Node {
 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr safe_cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr cbf_enabled_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
       joint_states_sub_;
@@ -357,15 +453,21 @@ class G1OrchestratorNode : public rclcpp::Node {
   std::unordered_map<std::string, std::size_t> joint_map_;
   std::array<float, G1_NUM_MOTOR> current_positions_{};
   std::array<float, G1_NUM_MOTOR> neutral_start_positions_{};
+  std::array<float, G1_NUM_MOTOR> upper_neutral_start_positions_{};
   std::array<float, G1_NUM_MOTOR> target_positions_{};
   std::array<float, G1_NUM_MOTOR> target_velocities_{};
   std::array<float, G1_NUM_MOTOR> target_efforts_{};
   rclcpp::Time neutral_start_time_{};
+  rclcpp::Time upper_neutral_start_time_{};
   OrchestratorState state_{OrchestratorState::kNeutral};
   bool has_state_{false};
   bool has_latest_control_cmd_{false};
   bool neutral_ramp_active_{false};
+  bool upper_neutral_ramp_active_{false};
+  bool cbf_enabled_{true};
   bool last_control_button_pressed_{false};
+  bool last_cbf_disable_button_pressed_{false};
+  bool last_cbf_enable_button_pressed_{false};
 };
 
 int main(int argc, char **argv) {
