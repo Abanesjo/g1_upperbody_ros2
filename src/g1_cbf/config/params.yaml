@@ -39,6 +39,16 @@ g1_cbf_node:
     human_timeout_sec: 0.5
     tf_lookup_timeout_sec: 0.0
 
+workspace_manager_node:
+  ros__parameters:
+    publish_rate: 50.0
+    capture_retry_timeout_sec: 0.5
+    tf_lookup_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.2
+    world_frame: "world"
+    workspace_frame: "workspace"
+    pelvis_frame: "pelvis"
+
 g1_cbf_viz_node:
   ros__parameters:
     publish_viz: false
@@ -57,7 +67,7 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.15
+    external_margin_phi: 0.3
     external_gamma: 1.0
     head_collider_radius: 0.3
     world_circle_radius: 2.0
@@ -90,7 +100,7 @@ origin_cmd_vel_publisher_node:
     max_linear_y: 0.5
     max_angular_z: 1.0
     pose_timeout_sec: 0.2
-    world_frame: "world"
+    world_frame: "workspace"
     pelvis_frame: "pelvis"
     tf_lookup_timeout_sec: 0.0
     tf_stale_timeout_sec: 0.0
@@ -99,3 +109,4 @@ pelvis_circle_publisher_node:
   ros__parameters:
     world_circle_radius: 2.0
     height: 0.5
+    workspace_frame: "workspace"

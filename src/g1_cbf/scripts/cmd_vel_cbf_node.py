@@ -19,7 +19,6 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool
 from tf2_ros import TransformException
 
 from g1_cbf.cbf_config import G1CmdVelCBFConfig
@@ -39,7 +38,7 @@ from g1_cbf.tf_pose import (
     normalize_frame,
     resolve_lookup_timeout_sec,
 )
-from g1_cbf_msg.msg import CapsuleArray
+from g1_cbf_msg.msg import CapsuleArray, WorkspaceState
 
 
 WORLD_FRAME = 'world'
@@ -141,7 +140,11 @@ class CmdVelCBFNode(Node):
         self._human_endpoint_radii = None
         self._human_endpoint_mask = None
         self._last_human_time = None
-        self._cbf_enabled = True
+        self._workspace_state = (
+            np.zeros(2, dtype=np.float64),
+            False,
+            0,
+        )
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -149,7 +152,7 @@ class CmdVelCBFNode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
-        cbf_enable_qos = QoSProfile(
+        workspace_state_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             history=HistoryPolicy.KEEP_LAST,
@@ -164,7 +167,8 @@ class CmdVelCBFNode(Node):
             CapsuleArray, '/human/colliders', self._human_colliders_cb, qos,
         )
         self.create_subscription(
-            Bool, '/cbf/enabled', self._cbf_enabled_cb, cbf_enable_qos,
+            WorkspaceState, '/cbf/workspace_state',
+            self._workspace_state_cb, workspace_state_qos,
         )
         self._cmd_pub = self.create_publisher(
             Twist, '/cmd_vel_safe', qos,
@@ -242,6 +246,7 @@ class CmdVelCBFNode(Node):
             jnp.array([1.0, 0.0]),
             jnp.zeros(2),
             jnp.array([0.0, 0.0, 0.0, 1.0]),
+            jnp.zeros(2),
             jnp.array(self._world_circle_radius, dtype=jnp.float64),
             jnp.array(self._head_collider_radius, dtype=jnp.float64),
             jnp.array(True),
@@ -257,8 +262,16 @@ class CmdVelCBFNode(Node):
     def _cmd_vel_cb(self, msg: Twist):
         self._latest_cmd = msg
 
-    def _cbf_enabled_cb(self, msg: Bool):
-        self._cbf_enabled = bool(msg.data)
+    def _workspace_state_cb(self, msg: WorkspaceState):
+        center_xy = np.array([
+            msg.transform.translation.x,
+            msg.transform.translation.y,
+        ], dtype=np.float64)
+        self._workspace_state = (
+            center_xy,
+            bool(msg.enabled),
+            int(msg.generation),
+        )
 
     def _joint_states_cb(self, msg: JointState):
         name_to_pos = {
@@ -350,7 +363,8 @@ class CmdVelCBFNode(Node):
         cmd_vel_cbf_enabled = bool(
             self.get_parameter('cmd_vel_cbf_enabled').value
         )
-        if not self._cbf_enabled or not area_cbf or not cmd_vel_cbf_enabled:
+        workspace_center_xy, workspace_enabled, _ = self._workspace_state
+        if not workspace_enabled or not area_cbf or not cmd_vel_cbf_enabled:
             safe_xy = self._clip_planar_velocity(
                 np.array([cmd.linear.x, cmd.linear.y], dtype=np.float64)
             )
@@ -371,7 +385,8 @@ class CmdVelCBFNode(Node):
             return
 
         safe_xy = self._filter_planar_velocity(
-            np.array([cmd.linear.x, cmd.linear.y], dtype=np.float64)
+            np.array([cmd.linear.x, cmd.linear.y], dtype=np.float64),
+            workspace_center_xy,
         )
         safe_msg.linear.x = float(safe_xy[0])
         safe_msg.linear.y = float(safe_xy[1])
@@ -410,7 +425,7 @@ class CmdVelCBFNode(Node):
             return False, f'/joint_states stale by {joint_age:.3f}s'
         return True, ''
 
-    def _filter_planar_velocity(self, u_des_np):
+    def _filter_planar_velocity(self, u_des_np, workspace_center_xy):
         head_xy = self._head_xy_world()
         (
             human_endpoint_points_xy,
@@ -422,6 +437,7 @@ class CmdVelCBFNode(Node):
                 jnp.array(head_xy, dtype=jnp.float64),
                 jnp.array(u_des_np, dtype=jnp.float64),
                 jnp.array(self._pelvis_quat, dtype=jnp.float64),
+                jnp.array(workspace_center_xy, dtype=jnp.float64),
                 jnp.array(self._world_circle_radius, dtype=jnp.float64),
                 jnp.array(self._head_collider_radius, dtype=jnp.float64),
                 jnp.array(True),

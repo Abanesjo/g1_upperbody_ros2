@@ -10,6 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Capsule.msg"
   "msg/CapsuleArray.msg"
   "msg/ActiveCollisionPairs.msg"
+  "msg/WorkspaceState.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 

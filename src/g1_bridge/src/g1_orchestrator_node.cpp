@@ -16,8 +16,10 @@ namespace {
 
 constexpr std::size_t G1_NUM_MOTOR = 29;
 constexpr std::size_t G1_UPPER_BODY_START_INDEX = 12;
-constexpr int JOY_CBF_DISABLE_BUTTON = 1;
-constexpr int JOY_CBF_ENABLE_BUTTON = 2;
+constexpr int JOY_WORKSPACE_CBF_DISABLE_BUTTON = 0;
+constexpr int JOY_UPPER_CBF_DISABLE_BUTTON = 1;
+constexpr int JOY_UPPER_CBF_ENABLE_BUTTON = 2;
+constexpr int JOY_WORKSPACE_CBF_ENABLE_BUTTON = 3;
 constexpr int JOY_DAMP_BUTTON = 4;
 constexpr int JOY_CONTROL_TOGGLE_BUTTON = 5;
 constexpr double NEUTRAL_DURATION_SECONDS = 3.0;
@@ -74,8 +76,6 @@ class G1OrchestratorNode : public rclcpp::Node {
                   "Unknown initial_mode '%s', defaulting to neutral",
                   initial_mode.c_str());
     }
-    cbf_enabled_ = state_ == OrchestratorState::kControl;
-
     auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1))
                           .best_effort()
                           .durability_volatile();
@@ -91,6 +91,12 @@ class G1OrchestratorNode : public rclcpp::Node {
     cbf_enabled_pub_ =
         this->create_publisher<std_msgs::msg::Bool>(
             "/cbf/enabled",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .transient_local());
+    workspace_enable_request_pub_ =
+        this->create_publisher<std_msgs::msg::Bool>(
+            "/cbf/workspace_enable_request",
             rclcpp::QoS(rclcpp::KeepLast(1))
                 .reliable()
                 .transient_local());
@@ -119,7 +125,8 @@ class G1OrchestratorNode : public rclcpp::Node {
         [this] { PublishOrchestratedCommand(); });
 
     PublishState();
-    PublishCbfEnabled();
+    PublishUpperCbfEnabled();
+    PublishWorkspaceEnableRequest();
 
     RCLCPP_INFO(this->get_logger(), "G1 orchestrator node started");
   }
@@ -144,7 +151,8 @@ class G1OrchestratorNode : public rclcpp::Node {
     if (new_state == state_) {
       return;
     }
-    SetCbfEnabled(new_state == OrchestratorState::kControl);
+    SetUpperCbfEnabled(false, true);
+    SetWorkspaceEnableRequest(false, true);
     state_ = new_state;
     PublishState();
   }
@@ -165,10 +173,16 @@ class G1OrchestratorNode : public rclcpp::Node {
     state_pub_->publish(msg);
   }
 
-  void PublishCbfEnabled() {
+  void PublishUpperCbfEnabled() {
     std_msgs::msg::Bool msg;
-    msg.data = cbf_enabled_;
+    msg.data = upper_cbf_enabled_;
     cbf_enabled_pub_->publish(msg);
+  }
+
+  void PublishWorkspaceEnableRequest() {
+    std_msgs::msg::Bool msg;
+    msg.data = workspace_enable_requested_;
+    workspace_enable_request_pub_->publish(msg);
   }
 
   void StartUpperNeutralRamp(const rclcpp::Time &now) {
@@ -177,18 +191,27 @@ class G1OrchestratorNode : public rclcpp::Node {
     upper_neutral_ramp_active_ = true;
   }
 
-  void SetCbfEnabled(bool enabled) {
-    if (enabled == cbf_enabled_) {
-      return;
+  void SetUpperCbfEnabled(bool enabled, bool force_publish = false) {
+    const bool changed = enabled != upper_cbf_enabled_;
+    if (changed) {
+      upper_cbf_enabled_ = enabled;
+      if (enabled) {
+        upper_neutral_ramp_active_ = false;
+      } else {
+        StartUpperNeutralRamp(this->get_clock()->now());
+      }
     }
+    if (changed || force_publish) {
+      PublishUpperCbfEnabled();
+    }
+  }
 
-    cbf_enabled_ = enabled;
-    if (enabled) {
-      upper_neutral_ramp_active_ = false;
-    } else {
-      StartUpperNeutralRamp(this->get_clock()->now());
+  void SetWorkspaceEnableRequest(bool enabled, bool force_publish = false) {
+    const bool changed = enabled != workspace_enable_requested_;
+    workspace_enable_requested_ = enabled;
+    if (changed || force_publish) {
+      PublishWorkspaceEnableRequest();
     }
-    PublishCbfEnabled();
   }
 
   void StartNeutralRamp(const rclcpp::Time &now) {
@@ -213,32 +236,63 @@ class G1OrchestratorNode : public rclcpp::Node {
       return;
     }
 
-    const bool cbf_disable_pressed =
-        IsButtonPressed(*msg, JOY_CBF_DISABLE_BUTTON);
-    const bool cbf_enable_pressed =
-        IsButtonPressed(*msg, JOY_CBF_ENABLE_BUTTON);
-    const bool cbf_disable_rising_edge =
-        cbf_disable_pressed && !last_cbf_disable_button_pressed_;
-    const bool cbf_enable_rising_edge =
-        cbf_enable_pressed && !last_cbf_enable_button_pressed_;
-    last_cbf_disable_button_pressed_ = cbf_disable_pressed;
-    last_cbf_enable_button_pressed_ = cbf_enable_pressed;
+    const bool upper_cbf_disable_pressed =
+        IsButtonPressed(*msg, JOY_UPPER_CBF_DISABLE_BUTTON);
+    const bool upper_cbf_enable_pressed =
+        IsButtonPressed(*msg, JOY_UPPER_CBF_ENABLE_BUTTON);
+    const bool upper_cbf_disable_rising_edge =
+        upper_cbf_disable_pressed &&
+        !last_upper_cbf_disable_button_pressed_;
+    const bool upper_cbf_enable_rising_edge =
+        upper_cbf_enable_pressed && !last_upper_cbf_enable_button_pressed_;
+    last_upper_cbf_disable_button_pressed_ = upper_cbf_disable_pressed;
+    last_upper_cbf_enable_button_pressed_ = upper_cbf_enable_pressed;
+
+    const bool workspace_cbf_disable_pressed =
+        IsButtonPressed(*msg, JOY_WORKSPACE_CBF_DISABLE_BUTTON);
+    const bool workspace_cbf_enable_pressed =
+        IsButtonPressed(*msg, JOY_WORKSPACE_CBF_ENABLE_BUTTON);
+    const bool workspace_cbf_disable_rising_edge =
+        workspace_cbf_disable_pressed &&
+        !last_workspace_cbf_disable_button_pressed_;
+    const bool workspace_cbf_enable_rising_edge =
+        workspace_cbf_enable_pressed &&
+        !last_workspace_cbf_enable_button_pressed_;
+    last_workspace_cbf_disable_button_pressed_ =
+        workspace_cbf_disable_pressed;
+    last_workspace_cbf_enable_button_pressed_ =
+        workspace_cbf_enable_pressed;
 
     if (state_ == OrchestratorState::kControl) {
-      // Enabling wins when both buttons rise in the same Joy message.
-      if (cbf_enable_rising_edge) {
-        if (!cbf_enabled_) {
-          SetCbfEnabled(true);
+      // Enabling wins within each pair when both edges occur together.
+      if (upper_cbf_enable_rising_edge) {
+        if (!upper_cbf_enabled_) {
+          SetUpperCbfEnabled(true);
           RCLCPP_INFO(this->get_logger(),
-                      "Joy button[%d] pressed - enabling all CBFs",
-                      JOY_CBF_ENABLE_BUTTON);
+                      "Joy button[%d] pressed - enabling upper-body CBFs",
+                      JOY_UPPER_CBF_ENABLE_BUTTON);
         }
-      } else if (cbf_disable_rising_edge && cbf_enabled_) {
-        SetCbfEnabled(false);
+      } else if (upper_cbf_disable_rising_edge && upper_cbf_enabled_) {
+        SetUpperCbfEnabled(false);
         RCLCPP_WARN(this->get_logger(),
-                    "Joy button[%d] pressed - disabling all CBFs and "
+                    "Joy button[%d] pressed - disabling upper-body CBFs and "
                     "moving the upper body to neutral",
-                    JOY_CBF_DISABLE_BUTTON);
+                    JOY_UPPER_CBF_DISABLE_BUTTON);
+      }
+
+      if (workspace_cbf_enable_rising_edge) {
+        SetWorkspaceEnableRequest(true, true);
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Joy button[%d] pressed - requesting workspace recenter and "
+            "CBF enable",
+            JOY_WORKSPACE_CBF_ENABLE_BUTTON);
+      } else if (workspace_cbf_disable_rising_edge &&
+                 workspace_enable_requested_) {
+        SetWorkspaceEnableRequest(false);
+        RCLCPP_WARN(this->get_logger(),
+                    "Joy button[%d] pressed - disabling workspace CBF",
+                    JOY_WORKSPACE_CBF_DISABLE_BUTTON);
       }
     }
 
@@ -297,7 +351,7 @@ class G1OrchestratorNode : public rclcpp::Node {
       target_velocities_.fill(0.0F);
       target_efforts_.fill(0.0F);
       if (state_ == OrchestratorState::kControl) {
-        if (!cbf_enabled_) {
+        if (!upper_cbf_enabled_) {
           StartUpperNeutralRamp(this->get_clock()->now());
         }
         RCLCPP_INFO(this->get_logger(),
@@ -388,7 +442,7 @@ class G1OrchestratorNode : public rclcpp::Node {
   void BuildControlCommand(sensor_msgs::msg::JointState &cmd,
                            const rclcpp::Time &now) {
     double upper_neutral_ratio = 1.0;
-    if (!cbf_enabled_ && upper_neutral_ramp_active_) {
+    if (!upper_cbf_enabled_ && upper_neutral_ramp_active_) {
       upper_neutral_ratio = Clamp(
           (now - upper_neutral_start_time_).seconds() /
               NEUTRAL_DURATION_SECONDS,
@@ -400,7 +454,7 @@ class G1OrchestratorNode : public rclcpp::Node {
 
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       cmd.name.push_back(JOINT_NAMES[i]);
-      if (cbf_enabled_ || i < G1_UPPER_BODY_START_INDEX) {
+      if (upper_cbf_enabled_ || i < G1_UPPER_BODY_START_INDEX) {
         cmd.position.push_back(static_cast<double>(target_positions_[i]));
         cmd.velocity.push_back(static_cast<double>(target_velocities_[i]));
         cmd.effort.push_back(static_cast<double>(target_efforts_[i]));
@@ -444,6 +498,8 @@ class G1OrchestratorNode : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr safe_cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr cbf_enabled_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr
+      workspace_enable_request_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
       joint_states_sub_;
@@ -464,10 +520,13 @@ class G1OrchestratorNode : public rclcpp::Node {
   bool has_latest_control_cmd_{false};
   bool neutral_ramp_active_{false};
   bool upper_neutral_ramp_active_{false};
-  bool cbf_enabled_{true};
+  bool upper_cbf_enabled_{false};
+  bool workspace_enable_requested_{false};
   bool last_control_button_pressed_{false};
-  bool last_cbf_disable_button_pressed_{false};
-  bool last_cbf_enable_button_pressed_{false};
+  bool last_upper_cbf_disable_button_pressed_{false};
+  bool last_upper_cbf_enable_button_pressed_{false};
+  bool last_workspace_cbf_disable_button_pressed_{false};
+  bool last_workspace_cbf_enable_button_pressed_{false};
 };
 
 int main(int argc, char **argv) {

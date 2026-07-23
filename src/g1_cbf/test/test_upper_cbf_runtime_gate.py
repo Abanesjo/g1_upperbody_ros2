@@ -4,6 +4,7 @@ from types import MethodType, SimpleNamespace
 
 import numpy as np
 import pytest
+from g1_cbf_msg.msg import WorkspaceState
 from rclpy.time import Time
 from std_msgs.msg import Bool
 
@@ -97,3 +98,50 @@ def test_reenable_resets_filter_target_to_current_measurement():
     assert node.q_des_filtered is None
     assert node.q_des_latest is latest_unsafe
     assert logger.messages == ['CBF safety filter enabled']
+
+
+def test_workspace_state_does_not_disable_upper_cbf():
+    node = SimpleNamespace(
+        _cbf_enabled=True,
+        _workspace_state=(np.zeros(2), True, 0),
+        get_parameter=lambda _name: SimpleNamespace(value=True),
+    )
+    state = WorkspaceState()
+    state.transform.translation.x = 2.0
+    state.transform.translation.y = -1.0
+    state.enabled = False
+    state.generation = 3
+
+    _MODULE.G1CBFNode._workspace_state_cb(node, state)
+    args = _MODULE.G1CBFNode._head_circle_args(
+        node,
+        None,
+        node._workspace_state,
+    )
+
+    assert node._cbf_enabled
+    assert np.asarray(args[2]) == pytest.approx([2.0, -1.0])
+    assert not bool(np.asarray(args[-1]))
+
+
+def test_upper_area_barrier_is_translation_invariant():
+    config = _MODULE.G1CollisionCBFConfig.__new__(
+        _MODULE.G1CollisionCBFConfig
+    )
+    config.external_margin_phi = 0.1
+    identity = _MODULE.jnp.array([0.0, 0.0, 0.0, 1.0])
+
+    def barrier(pelvis_xy, center_xy):
+        return config._head_circle_barrier(
+            _MODULE.jnp.array([0.2, -0.1, 0.8]),
+            _MODULE.jnp.array([pelvis_xy[0], pelvis_xy[1], 1.0]),
+            identity,
+            _MODULE.jnp.array(center_xy),
+            _MODULE.jnp.array(3.0),
+            _MODULE.jnp.array(0.3),
+            _MODULE.jnp.array(True),
+        )
+
+    original = barrier([1.0, 2.0], [0.5, 1.5])
+    shifted = barrier([4.0, -2.0], [3.5, -2.5])
+    assert float(shifted) == pytest.approx(float(original))

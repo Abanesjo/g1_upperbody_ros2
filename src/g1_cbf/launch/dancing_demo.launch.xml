@@ -61,6 +61,11 @@
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
+  <node pkg="g1_cbf" exec="workspace_manager_node" name="workspace_manager_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
   <!-- ==================== g1_cbf ==================== -->
 
   <!-- Filters upper body commands: /upper_body_targets_unsafe → /upper_body_targets (fed to RL policy) -->
@@ -72,7 +77,7 @@
     <remap from="/joint_commands" to="/upper_body_targets"/>
   </node>
 
-  <!-- Drives /cmd_vel toward world origin; cmd_vel_cbf_node filters before policy use. -->
+  <!-- Drives /cmd_vel toward workspace origin; cmd_vel_cbf_node filters before policy use. -->
   <node pkg="g1_cbf" exec="origin_cmd_vel_publisher_node" name="origin_cmd_vel_publisher_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>

@@ -40,6 +40,11 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
+  scripts/workspace_manager_node.py
+  RENAME workspace_manager_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
   scripts/ghost_publisher_node.py
   RENAME ghost_publisher_node
   DESTINATION lib/${PROJECT_NAME}
@@ -55,6 +60,12 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_upper_cbf_runtime_gate
     test/test_upper_cbf_runtime_gate.py
+  )
+  ament_add_pytest_test(test_workspace_manager
+    test/test_workspace_manager.py
+  )
+  ament_add_pytest_test(test_pelvis_circle_workspace
+    test/test_pelvis_circle_workspace.py
   )
 endif()
 

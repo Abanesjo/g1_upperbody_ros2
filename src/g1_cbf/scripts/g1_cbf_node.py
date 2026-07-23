@@ -48,7 +48,11 @@ from g1_cbf.tf_pose import (
     normalize_frame,
     resolve_lookup_timeout_sec,
 )
-from g1_cbf_msg.msg import ActiveCollisionPairs, CapsuleArray
+from g1_cbf_msg.msg import (
+    ActiveCollisionPairs,
+    CapsuleArray,
+    WorkspaceState,
+)
 
 WORLD_FRAME = 'world'
 PELVIS_FRAME = 'pelvis'
@@ -284,6 +288,7 @@ class G1CBFNode(Node):
         _internal_mask = jnp.zeros(self._internal_pair_slots, dtype=bool)
         _pelvis_pos = jnp.zeros(3)
         _pelvis_quat = jnp.array([0.0, 0.0, 0.0, 1.0])
+        _workspace_center_xy = jnp.zeros(2)
         _circle_radius = jnp.array(world_circle_radius, dtype=jnp.float64)
         _head_radius = jnp.array(head_collider_radius, dtype=jnp.float64)
         _head_circle_enabled = jnp.array(False)
@@ -291,7 +296,8 @@ class G1CBFNode(Node):
         _ = self.cbf.safety_filter(
             _z, _u, _ql, _hc, _pairs, _pair_mask,
             _internal_pairs, _internal_mask, _pelvis_pos, _pelvis_quat,
-            _circle_radius, _head_radius, _head_circle_enabled,
+            _workspace_center_xy, _circle_radius, _head_radius,
+            _head_circle_enabled,
         )
         jit_time = _time.monotonic() - t0
         self.get_logger().info(
@@ -307,7 +313,12 @@ class G1CBFNode(Node):
         self.q_des_latest = None
         self.q_des_filtered = None
         self.q_cbf_target = None
-        self._cbf_enabled = True
+        self._cbf_enabled = False
+        self._workspace_state = (
+            np.zeros(2, dtype=np.float64),
+            False,
+            0,
+        )
         self._human_capsules = []
         self._last_human_time = None
 
@@ -341,6 +352,10 @@ class G1CBFNode(Node):
         self.create_subscription(
             Bool, '/cbf/enabled',
             self._cbf_enabled_cb, cbf_enabled_qos,
+        )
+        self.create_subscription(
+            WorkspaceState, '/cbf/workspace_state',
+            self._workspace_state_cb, cbf_enabled_qos,
         )
 
         # Publisher
@@ -438,6 +453,17 @@ class G1CBFNode(Node):
         state = 'enabled' if enabled else 'disabled'
         self.get_logger().info(f'CBF safety filter {state}')
 
+    def _workspace_state_cb(self, msg: WorkspaceState):
+        center_xy = np.array([
+            msg.transform.translation.x,
+            msg.transform.translation.y,
+        ], dtype=np.float64)
+        self._workspace_state = (
+            center_xy,
+            bool(msg.enabled),
+            int(msg.generation),
+        )
+
     # ------------------------------------------------------------------
     # Main control loop
     # ------------------------------------------------------------------
@@ -485,9 +511,10 @@ class G1CBFNode(Node):
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
         q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
         human_capsules = self._current_human_capsules()
+        workspace_state = self._workspace_state
         pelvis_pose = (
             self._lookup_pelvis_pose()
-            if self._needs_pelvis_pose(human_capsules)
+            if self._needs_pelvis_pose(human_capsules, workspace_state)
             else None
         )
         human_caps, human_mask = self._pack_human_capsules(
@@ -505,17 +532,19 @@ class G1CBFNode(Node):
         (
             pelvis_position_jnp,
             pelvis_quat_jnp,
+            workspace_center_xy_jnp,
             world_circle_radius_jnp,
             head_collider_radius_jnp,
             head_circle_enabled_jnp,
-        ) = self._head_circle_args(pelvis_pose)
+        ) = self._head_circle_args(pelvis_pose, workspace_state)
 
         # Single CBF call — FK + proximity + QP all on GPU
         dq_safe_jnp = self.cbf.safety_filter(
             z, u_des, q_legs_jnp, human_caps, pair_indices_jnp, pair_mask_jnp,
             internal_indices_jnp, internal_mask_jnp, pelvis_position_jnp,
-            pelvis_quat_jnp, world_circle_radius_jnp,
-            head_collider_radius_jnp, head_circle_enabled_jnp,
+            pelvis_quat_jnp, workspace_center_xy_jnp,
+            world_circle_radius_jnp, head_collider_radius_jnp,
+            head_circle_enabled_jnp,
         )
         dq_safe = np.asarray(dq_safe_jnp)
 
@@ -618,9 +647,11 @@ class G1CBFNode(Node):
             )
         return pose
 
-    def _needs_pelvis_pose(self, human_capsules):
+    def _needs_pelvis_pose(self, human_capsules, workspace_state):
+        _, workspace_enabled, _ = workspace_state
         head_circle_enabled = (
-            bool(self.get_parameter('area_cbf').value)
+            workspace_enabled
+            and bool(self.get_parameter('area_cbf').value)
             and bool(self.get_parameter('head_circle_cbf_enabled').value)
         )
         return head_circle_enabled or bool(human_capsules)
@@ -708,9 +739,11 @@ class G1CBFNode(Node):
             ),
         )
 
-    def _head_circle_args(self, pelvis_pose):
+    def _head_circle_args(self, pelvis_pose, workspace_state):
+        workspace_center_xy, workspace_enabled, _ = workspace_state
         configured_enabled = (
-            bool(self.get_parameter('area_cbf').value)
+            workspace_enabled
+            and bool(self.get_parameter('area_cbf').value)
             and bool(self.get_parameter('head_circle_cbf_enabled').value)
         )
         enabled = configured_enabled and pelvis_pose is not None
@@ -732,6 +765,7 @@ class G1CBFNode(Node):
         return (
             jnp.array(pelvis_position, dtype=jnp.float64),
             jnp.array(pelvis_quat, dtype=jnp.float64),
+            jnp.array(workspace_center_xy, dtype=jnp.float64),
             jnp.array(
                 self.get_parameter('world_circle_radius').value,
                 dtype=jnp.float64,

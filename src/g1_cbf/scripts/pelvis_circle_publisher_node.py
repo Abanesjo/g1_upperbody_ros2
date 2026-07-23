@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish an RViz circle centered in the world frame."""
+"""Publish the workspace boundary circle for RViz."""
 
 import math
 
@@ -20,6 +20,7 @@ class PelvisCirclePublisherNode(Node):
         self.declare_parameter('publish_rate', 5.0)
         self.declare_parameter('segments', 96)
         self.declare_parameter('line_width', 0.02)
+        self.declare_parameter('workspace_frame', 'workspace')
 
         world_circle_radius = float(
             self.get_parameter('world_circle_radius').value
@@ -32,6 +33,9 @@ class PelvisCirclePublisherNode(Node):
         self.height = float(self.get_parameter('height').value)
         self.segments = int(self.get_parameter('segments').value)
         self.line_width = float(self.get_parameter('line_width').value)
+        self.workspace_frame = str(
+            self.get_parameter('workspace_frame').value
+        ).strip().lstrip('/')
 
         if self.radius <= 0.0:
             self.get_logger().warn('radius must be positive; using 3.0 m')
@@ -42,6 +46,11 @@ class PelvisCirclePublisherNode(Node):
         if self.line_width <= 0.0:
             self.get_logger().warn('line_width must be positive; using 0.02 m')
             self.line_width = 0.02
+        if not self.workspace_frame:
+            self.get_logger().warn(
+                'workspace_frame must not be empty; using workspace'
+            )
+            self.workspace_frame = 'workspace'
 
         publish_rate = float(self.get_parameter('publish_rate').value)
         if publish_rate <= 0.0:
@@ -54,12 +63,13 @@ class PelvisCirclePublisherNode(Node):
         self.get_logger().info(
             f'Publishing pelvis circle: radius={self.radius:.2f} m, '
             f'height={self.height:.2f} m, '
+            f'frame={self.workspace_frame}, '
             f'rate={publish_rate:.1f} Hz'
         )
 
     def _publish_circle(self):
         marker = Marker()
-        marker.header.frame_id = 'world'
+        marker.header.frame_id = self.workspace_frame
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'pelvis_circle'
         marker.id = 0

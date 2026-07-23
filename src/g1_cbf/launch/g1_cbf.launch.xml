@@ -4,6 +4,10 @@
   <arg name="viz" default="false"/>
   <arg name="viz_rate" default="5.0"/>
 
+  <node pkg="g1_cbf" exec="workspace_manager_node" name="workspace_manager_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+  </node>
+
   <!-- CBF safety filter -->
   <node pkg="g1_cbf" exec="g1_cbf_node" name="g1_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
