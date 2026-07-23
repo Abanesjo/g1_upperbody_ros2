@@ -12,7 +12,6 @@
   <arg name="gravity" default="true"/>
   <arg name="policy_type" default="gru_mlp"/>
   <arg name="area_cbf" default="true"/>
-  <arg name="center_seeking" default="false"/>
   <arg name="initial_mode" default="neutral"/>
 
   <!-- ==================== g1_bridge ==================== -->
@@ -21,11 +20,11 @@
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
+  <node pkg="g1_bridge" exec="g1_orchestrator_node" name="g1_orchestrator_node" output="screen">
+    <param name="initial_mode" value="$(var initial_mode)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
   <group if="$(var bridge)">
-    <node pkg="g1_bridge" exec="g1_orchestrator_node" name="g1_orchestrator_node" output="screen">
-      <param name="initial_mode" value="$(var initial_mode)"/>
-      <param name="use_sim_time" value="$(var use_sim_time)"/>
-    </node>
     <group unless="$(var simulator)">
       <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
         <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
@@ -60,13 +59,19 @@
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
-  <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen"
-        unless="$(var center_seeking)">
+  <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/cmd_vel" to="/cmd_vel_joy"/>
   </node>
 
   <node pkg="g1_cbf" exec="workspace_manager_node" name="workspace_manager_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+  <node pkg="g1_cbf" exec="workspace_cmd_vel_node" name="workspace_cmd_vel_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="orchestrator_required" value="true"/>
+    <param name="workspace_cbf_available" value="$(var area_cbf)"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
@@ -84,12 +89,6 @@
   <node pkg="g1_cbf" exec="cmd_vel_cbf_node" name="cmd_vel_cbf_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="area_cbf" value="$(var area_cbf)"/>
-    <param name="use_sim_time" value="$(var use_sim_time)"/>
-  </node>
-
-  <node pkg="g1_cbf" exec="origin_cmd_vel_publisher_node" name="origin_cmd_vel_publisher_node" output="screen"
-        if="$(var center_seeking)">
-    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 

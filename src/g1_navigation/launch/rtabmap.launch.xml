@@ -60,7 +60,7 @@
         <arg name="odom_frame_id" value="$(var odom_frame_id)"/>
         <arg name="vo_frame_id" value="$(var vo_frame_id)"/>
         <arg name="publish_tf_odom" value="$(var publish_tf_odom)"/>
-        <arg name="args" value="--Grid/MinGroundHeight -0.05 --Grid/MaxObstacleHeight 1.315"/>
+        <arg name="args" value="--Grid/MinGroundHeight 0.3 --Grid/MaxObstacleHeight 1.315"/>
         <arg name="odom_args" value="$(var odom_args)"/>
         <!-- inputs -->
         <arg name="odom_topic" value="$(var odom_topic)"/>

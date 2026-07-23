@@ -21,4 +21,12 @@ install(PROGRAMS scripts/motion_playback.py RENAME motion_playback DESTINATION l
 install(PROGRAMS scripts/joint_merger.py RENAME joint_merger DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config models motions DESTINATION share/${PROJECT_NAME})
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_motion_playback_gate
+    test/test_motion_playback_gate.py
+    TIMEOUT 20
+  )
+endif()
+
 ament_package()

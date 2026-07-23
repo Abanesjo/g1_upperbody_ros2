@@ -33,7 +33,7 @@ g1_cbf_node:
     area_cbf: true
     head_circle_cbf_enabled: true
     head_collider_radius: 0.1
-    world_circle_radius: 2.0
+    world_circle_radius: 1.5
     world_frame: "world"
     pelvis_frame: "pelvis"
     human_timeout_sec: 0.5
@@ -48,6 +48,34 @@ workspace_manager_node:
     world_frame: "world"
     workspace_frame: "workspace"
     pelvis_frame: "pelvis"
+
+workspace_cmd_vel_node:
+  ros__parameters:
+    rate_hz: 50.0
+    workspace_frame: "workspace"
+    pelvis_frame: "pelvis"
+    path_speed: 0.5
+    tracking_radius: 0.1
+    path_resolution: 0.05
+    path_yaw_resolution_deg: 5.0
+    cross_track_gain: 1.0
+    max_cross_track_speed: 0.2
+    path_yaw_kp: 1.5
+    path_yaw_tolerance_deg: 5.0
+    center_kp_linear: 0.5
+    center_kd_linear: 0.05
+    center_kp_yaw: 1.0
+    center_kd_yaw: 0.05
+    center_position_deadzone: 0.05
+    center_yaw_deadzone_deg: 15.0
+    max_linear_x: 0.5
+    max_linear_y: 0.5
+    max_angular_z: 1.0
+    workspace_cbf_available: true
+    workspace_safe_radius: 1.4
+    joy_cmd_timeout_sec: 0.5
+    tf_lookup_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.2
 
 g1_cbf_viz_node:
   ros__parameters:
@@ -67,10 +95,10 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.3
-    external_gamma: 1.0
+    external_margin_phi: 0.05
+    external_gamma: 2.0
     head_collider_radius: 0.3
-    world_circle_radius: 2.0
+    world_circle_radius: 1.5
     cmd_vel_limits:
       lin_vel_x: [-1.0, 1.0]
       lin_vel_y: [-1.0, 1.0]
@@ -107,6 +135,6 @@ origin_cmd_vel_publisher_node:
 
 pelvis_circle_publisher_node:
   ros__parameters:
-    world_circle_radius: 2.0
+    world_circle_radius: 1.5
     height: 0.5
     workspace_frame: "workspace"

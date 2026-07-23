@@ -45,6 +45,11 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
+  scripts/workspace_cmd_vel_node.py
+  RENAME workspace_cmd_vel_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
   scripts/ghost_publisher_node.py
   RENAME ghost_publisher_node
   DESTINATION lib/${PROJECT_NAME}
@@ -66,6 +71,9 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_pelvis_circle_workspace
     test/test_pelvis_circle_workspace.py
+  )
+  ament_add_pytest_test(test_workspace_cmd_vel
+    test/test_workspace_cmd_vel.py
   )
 endif()
 

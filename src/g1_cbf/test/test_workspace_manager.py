@@ -45,6 +45,9 @@ def test_initial_state_is_disabled_identity_generation_zero():
 def test_capture_uses_only_pelvis_xy_and_increments_generation():
     state = WorkspaceCaptureState()
     state.request_enable(now=10.0, retry_timeout_sec=0.5)
+    assert not state.enabled
+    assert state.pending
+    assert state.generation == 0
 
     captured, reason = state.try_capture(
         _pose(x=3.5, y=-1.25, z=9.0, quat=(0.2, 0.3, 0.4, 0.5)),
@@ -64,15 +67,21 @@ def test_capture_uses_only_pelvis_xy_and_increments_generation():
 
     state.request_disable()
     assert not state.enabled
+    assert not state.pending
     assert (state.x, state.y, state.generation) == (3.5, -1.25, 1)
 
     state.request_enable(now=20.0, retry_timeout_sec=0.5)
+    assert not state.enabled
+    assert state.pending
+    assert (state.x, state.y, state.generation) == (3.5, -1.25, 1)
     captured, reason = state.try_capture(
         _pose(x=-2.0, y=4.0),
         age_sec=None,
         stale_timeout_sec=0.2,
     )
     assert captured, reason
+    assert state.enabled
+    assert not state.pending
     assert (state.x, state.y, state.generation) == (-2.0, 4.0, 2)
 
 
@@ -129,3 +138,4 @@ def test_timeout_requires_a_new_true_request_and_false_cancels():
     state.request_disable()
     assert not state.pending
     assert not state.enabled
+    assert (state.x, state.y, state.generation) == (7.0, 8.0, 4)

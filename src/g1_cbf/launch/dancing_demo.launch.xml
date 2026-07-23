@@ -21,11 +21,11 @@
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
+  <node pkg="g1_bridge" exec="g1_orchestrator_node" name="g1_orchestrator_node" output="screen">
+    <param name="initial_mode" value="$(var initial_mode)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
   <group if="$(var bridge)">
-    <node pkg="g1_bridge" exec="g1_orchestrator_node" name="g1_orchestrator_node" output="screen">
-      <param name="initial_mode" value="$(var initial_mode)"/>
-      <param name="use_sim_time" value="$(var use_sim_time)"/>
-    </node>
     <group unless="$(var simulator)">
       <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
         <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
@@ -60,9 +60,19 @@
   <node pkg="joy" exec="joy_node" name="joy_node" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
+  <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/cmd_vel" to="/cmd_vel_joy"/>
+  </node>
 
   <node pkg="g1_cbf" exec="workspace_manager_node" name="workspace_manager_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+  <node pkg="g1_cbf" exec="workspace_cmd_vel_node" name="workspace_cmd_vel_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="orchestrator_required" value="true"/>
+    <param name="workspace_cbf_available" value="true"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
@@ -75,12 +85,6 @@
     <param name="use_sim_time" value="$(var use_sim_time)"/>
     <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
     <remap from="/joint_commands" to="/upper_body_targets"/>
-  </node>
-
-  <!-- Drives /cmd_vel toward workspace origin; cmd_vel_cbf_node filters before policy use. -->
-  <node pkg="g1_cbf" exec="origin_cmd_vel_publisher_node" name="origin_cmd_vel_publisher_node" output="screen">
-    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
-    <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
   <!-- Filters base velocity commands: /cmd_vel → /cmd_vel_safe (fed to RL policy) -->
@@ -141,6 +145,7 @@
   <!-- Dance motion CSV → /upper_body_targets_unsafe (CBF filters before policy) -->
   <node pkg="g1_rl_deploy" exec="motion_playback" name="motion_playback" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="orchestrator_required" value="true"/>
     <remap from="/joint_commands" to="/upper_body_targets_unsafe"/>
   </node>
 </launch>

@@ -3,6 +3,7 @@ project(g1_bridge)
 
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(g1_cbf_msg REQUIRED)
 find_package(pinocchio REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -44,6 +45,7 @@ ament_target_dependencies(g1_bridge_node
 )
 target_link_libraries(g1_bridge_node gravity_compensation)
 ament_target_dependencies(g1_orchestrator_node
+  g1_cbf_msg
   rclcpp
   sensor_msgs
   std_msgs

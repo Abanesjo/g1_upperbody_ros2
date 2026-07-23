@@ -314,6 +314,7 @@ class G1CBFNode(Node):
         self.q_des_filtered = None
         self.q_cbf_target = None
         self._cbf_enabled = False
+        self._external_enabled = False
         self._workspace_state = (
             np.zeros(2, dtype=np.float64),
             False,
@@ -352,6 +353,10 @@ class G1CBFNode(Node):
         self.create_subscription(
             Bool, '/cbf/enabled',
             self._cbf_enabled_cb, cbf_enabled_qos,
+        )
+        self.create_subscription(
+            Bool, '/cbf/external_enabled',
+            self._external_enabled_cb, cbf_enabled_qos,
         )
         self.create_subscription(
             WorkspaceState, '/cbf/workspace_state',
@@ -453,6 +458,21 @@ class G1CBFNode(Node):
         state = 'enabled' if enabled else 'disabled'
         self.get_logger().info(f'CBF safety filter {state}')
 
+    def _external_enabled_cb(self, msg: Bool):
+        enabled = bool(msg.data)
+        if enabled == self._external_enabled:
+            return
+
+        self._external_enabled = enabled
+        if enabled:
+            if self.q_ctrl is not None:
+                self.q_cbf_target = self.q_ctrl.copy()
+            self.q_des_filtered = None
+        state = 'enabled' if enabled else 'disabled'
+        self.get_logger().info(
+            f'External human-collision CBF {state}'
+        )
+
     def _workspace_state_cb(self, msg: WorkspaceState):
         center_xy = np.array([
             msg.transform.translation.x,
@@ -510,7 +530,7 @@ class G1CBFNode(Node):
         z = jnp.array(z_np, dtype=jnp.float64)
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
         q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
-        human_capsules = self._current_human_capsules()
+        human_capsules = self._active_human_capsules()
         workspace_state = self._workspace_state
         pelvis_pose = (
             self._lookup_pelvis_pose()
@@ -673,6 +693,11 @@ class G1CBFNode(Node):
             throttle_duration_sec=2.0,
         )
         return []
+
+    def _active_human_capsules(self):
+        if not self._external_enabled:
+            return []
+        return self._current_human_capsules()
 
     @staticmethod
     def _normalize_quat(q):

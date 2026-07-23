@@ -53,10 +53,17 @@
   </node>
   <node pkg="g1_bridge" exec="joy_cmd_vel_node" name="joy_cmd_vel_node" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/cmd_vel" to="/cmd_vel_joy"/>
   </node>
 
   <node pkg="g1_cbf" exec="workspace_manager_node" name="workspace_manager_node" output="screen">
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+  <node pkg="g1_cbf" exec="workspace_cmd_vel_node" name="workspace_cmd_vel_node" output="screen">
+    <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
+    <param name="orchestrator_required" value="true"/>
+    <param name="workspace_cbf_available" value="$(var area_cbf)"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 

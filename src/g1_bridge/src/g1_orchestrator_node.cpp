@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "g1_cbf_msg/msg/workspace_state.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
@@ -15,11 +16,8 @@
 namespace {
 
 constexpr std::size_t G1_NUM_MOTOR = 29;
-constexpr std::size_t G1_UPPER_BODY_START_INDEX = 12;
-constexpr int JOY_WORKSPACE_CBF_DISABLE_BUTTON = 0;
-constexpr int JOY_UPPER_CBF_DISABLE_BUTTON = 1;
-constexpr int JOY_UPPER_CBF_ENABLE_BUTTON = 2;
-constexpr int JOY_WORKSPACE_CBF_ENABLE_BUTTON = 3;
+constexpr int JOY_EXTERNAL_CBF_TOGGLE_BUTTON = 2;
+constexpr int JOY_WORKSPACE_CBF_TOGGLE_BUTTON = 3;
 constexpr int JOY_DAMP_BUTTON = 4;
 constexpr int JOY_CONTROL_TOGGLE_BUTTON = 5;
 constexpr double NEUTRAL_DURATION_SECONDS = 3.0;
@@ -94,6 +92,12 @@ class G1OrchestratorNode : public rclcpp::Node {
             rclcpp::QoS(rclcpp::KeepLast(1))
                 .reliable()
                 .transient_local());
+    external_cbf_enabled_pub_ =
+        this->create_publisher<std_msgs::msg::Bool>(
+            "/cbf/external_enabled",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .transient_local());
     workspace_enable_request_pub_ =
         this->create_publisher<std_msgs::msg::Bool>(
             "/cbf/workspace_enable_request",
@@ -118,6 +122,16 @@ class G1OrchestratorNode : public rclcpp::Node {
         [this](const sensor_msgs::msg::Joy::SharedPtr msg) {
           JoyCallback(msg);
         });
+    workspace_state_sub_ =
+        this->create_subscription<g1_cbf_msg::msg::WorkspaceState>(
+            "/cbf/workspace_state",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .transient_local(),
+            [this](
+                const g1_cbf_msg::msg::WorkspaceState::SharedPtr msg) {
+              WorkspaceStateCallback(msg);
+            });
 
     publish_timer_ = rclcpp::create_timer(
         this, this->get_clock(),
@@ -125,7 +139,8 @@ class G1OrchestratorNode : public rclcpp::Node {
         [this] { PublishOrchestratedCommand(); });
 
     PublishState();
-    PublishUpperCbfEnabled();
+    PublishCbfEnabled();
+    PublishExternalCbfEnabled();
     PublishWorkspaceEnableRequest();
 
     RCLCPP_INFO(this->get_logger(), "G1 orchestrator node started");
@@ -151,10 +166,11 @@ class G1OrchestratorNode : public rclcpp::Node {
     if (new_state == state_) {
       return;
     }
-    SetUpperCbfEnabled(false, true);
+    SetExternalCbfEnabled(false, true);
     SetWorkspaceEnableRequest(false, true);
     state_ = new_state;
     PublishState();
+    PublishCbfEnabled();
   }
 
   void PublishState() {
@@ -173,10 +189,16 @@ class G1OrchestratorNode : public rclcpp::Node {
     state_pub_->publish(msg);
   }
 
-  void PublishUpperCbfEnabled() {
+  void PublishCbfEnabled() {
     std_msgs::msg::Bool msg;
-    msg.data = upper_cbf_enabled_;
+    msg.data = state_ == OrchestratorState::kControl;
     cbf_enabled_pub_->publish(msg);
+  }
+
+  void PublishExternalCbfEnabled() {
+    std_msgs::msg::Bool msg;
+    msg.data = external_cbf_enabled_;
+    external_cbf_enabled_pub_->publish(msg);
   }
 
   void PublishWorkspaceEnableRequest() {
@@ -185,24 +207,11 @@ class G1OrchestratorNode : public rclcpp::Node {
     workspace_enable_request_pub_->publish(msg);
   }
 
-  void StartUpperNeutralRamp(const rclcpp::Time &now) {
-    upper_neutral_start_positions_ = current_positions_;
-    upper_neutral_start_time_ = now;
-    upper_neutral_ramp_active_ = true;
-  }
-
-  void SetUpperCbfEnabled(bool enabled, bool force_publish = false) {
-    const bool changed = enabled != upper_cbf_enabled_;
-    if (changed) {
-      upper_cbf_enabled_ = enabled;
-      if (enabled) {
-        upper_neutral_ramp_active_ = false;
-      } else {
-        StartUpperNeutralRamp(this->get_clock()->now());
-      }
-    }
+  void SetExternalCbfEnabled(bool enabled, bool force_publish = false) {
+    const bool changed = enabled != external_cbf_enabled_;
+    external_cbf_enabled_ = enabled;
     if (changed || force_publish) {
-      PublishUpperCbfEnabled();
+      PublishExternalCbfEnabled();
     }
   }
 
@@ -236,63 +245,51 @@ class G1OrchestratorNode : public rclcpp::Node {
       return;
     }
 
-    const bool upper_cbf_disable_pressed =
-        IsButtonPressed(*msg, JOY_UPPER_CBF_DISABLE_BUTTON);
-    const bool upper_cbf_enable_pressed =
-        IsButtonPressed(*msg, JOY_UPPER_CBF_ENABLE_BUTTON);
-    const bool upper_cbf_disable_rising_edge =
-        upper_cbf_disable_pressed &&
-        !last_upper_cbf_disable_button_pressed_;
-    const bool upper_cbf_enable_rising_edge =
-        upper_cbf_enable_pressed && !last_upper_cbf_enable_button_pressed_;
-    last_upper_cbf_disable_button_pressed_ = upper_cbf_disable_pressed;
-    last_upper_cbf_enable_button_pressed_ = upper_cbf_enable_pressed;
+    const bool external_cbf_toggle_pressed =
+        IsButtonPressed(*msg, JOY_EXTERNAL_CBF_TOGGLE_BUTTON);
+    const bool external_cbf_toggle_rising_edge =
+        external_cbf_toggle_pressed &&
+        !last_external_cbf_toggle_button_pressed_;
+    last_external_cbf_toggle_button_pressed_ =
+        external_cbf_toggle_pressed;
 
-    const bool workspace_cbf_disable_pressed =
-        IsButtonPressed(*msg, JOY_WORKSPACE_CBF_DISABLE_BUTTON);
-    const bool workspace_cbf_enable_pressed =
-        IsButtonPressed(*msg, JOY_WORKSPACE_CBF_ENABLE_BUTTON);
-    const bool workspace_cbf_disable_rising_edge =
-        workspace_cbf_disable_pressed &&
-        !last_workspace_cbf_disable_button_pressed_;
-    const bool workspace_cbf_enable_rising_edge =
-        workspace_cbf_enable_pressed &&
-        !last_workspace_cbf_enable_button_pressed_;
-    last_workspace_cbf_disable_button_pressed_ =
-        workspace_cbf_disable_pressed;
-    last_workspace_cbf_enable_button_pressed_ =
-        workspace_cbf_enable_pressed;
+    const bool workspace_cbf_toggle_pressed =
+        IsButtonPressed(*msg, JOY_WORKSPACE_CBF_TOGGLE_BUTTON);
+    const bool workspace_cbf_toggle_rising_edge =
+        workspace_cbf_toggle_pressed &&
+        !last_workspace_cbf_toggle_button_pressed_;
+    last_workspace_cbf_toggle_button_pressed_ =
+        workspace_cbf_toggle_pressed;
 
     if (state_ == OrchestratorState::kControl) {
-      // Enabling wins within each pair when both edges occur together.
-      if (upper_cbf_enable_rising_edge) {
-        if (!upper_cbf_enabled_) {
-          SetUpperCbfEnabled(true);
+      if (external_cbf_toggle_rising_edge) {
+        const bool enable = !external_cbf_enabled_;
+        SetExternalCbfEnabled(enable);
+        if (enable) {
           RCLCPP_INFO(this->get_logger(),
-                      "Joy button[%d] pressed - enabling upper-body CBFs",
-                      JOY_UPPER_CBF_ENABLE_BUTTON);
+                      "Joy button[%d] pressed - enabling external CBFs",
+                      JOY_EXTERNAL_CBF_TOGGLE_BUTTON);
+        } else {
+          RCLCPP_WARN(this->get_logger(),
+                      "Joy button[%d] pressed - disabling external CBFs",
+                      JOY_EXTERNAL_CBF_TOGGLE_BUTTON);
         }
-      } else if (upper_cbf_disable_rising_edge && upper_cbf_enabled_) {
-        SetUpperCbfEnabled(false);
-        RCLCPP_WARN(this->get_logger(),
-                    "Joy button[%d] pressed - disabling upper-body CBFs and "
-                    "moving the upper body to neutral",
-                    JOY_UPPER_CBF_DISABLE_BUTTON);
       }
 
-      if (workspace_cbf_enable_rising_edge) {
-        SetWorkspaceEnableRequest(true, true);
-        RCLCPP_INFO(
-            this->get_logger(),
-            "Joy button[%d] pressed - requesting workspace recenter and "
-            "CBF enable",
-            JOY_WORKSPACE_CBF_ENABLE_BUTTON);
-      } else if (workspace_cbf_disable_rising_edge &&
-                 workspace_enable_requested_) {
-        SetWorkspaceEnableRequest(false);
-        RCLCPP_WARN(this->get_logger(),
-                    "Joy button[%d] pressed - disabling workspace CBF",
-                    JOY_WORKSPACE_CBF_DISABLE_BUTTON);
+      if (workspace_cbf_toggle_rising_edge) {
+        const bool enable = !workspace_enable_requested_;
+        SetWorkspaceEnableRequest(enable);
+        if (enable) {
+          RCLCPP_INFO(
+              this->get_logger(),
+              "Joy button[%d] pressed - requesting workspace recenter and "
+              "CBF enable",
+              JOY_WORKSPACE_CBF_TOGGLE_BUTTON);
+        } else {
+          RCLCPP_WARN(this->get_logger(),
+                      "Joy button[%d] pressed - disabling workspace CBF",
+                      JOY_WORKSPACE_CBF_TOGGLE_BUTTON);
+        }
       }
     }
 
@@ -332,6 +329,14 @@ class G1OrchestratorNode : public rclcpp::Node {
     RCLCPP_INFO(this->get_logger(), "Switching to control state");
   }
 
+  void WorkspaceStateCallback(
+      const g1_cbf_msg::msg::WorkspaceState::SharedPtr msg) {
+    if (msg->capture_pending) {
+      return;
+    }
+    workspace_enable_requested_ = msg->enabled;
+  }
+
   void JointStatesCallback(
       const sensor_msgs::msg::JointState::SharedPtr msg) {
     const bool had_state = has_state_;
@@ -351,9 +356,6 @@ class G1OrchestratorNode : public rclcpp::Node {
       target_velocities_.fill(0.0F);
       target_efforts_.fill(0.0F);
       if (state_ == OrchestratorState::kControl) {
-        if (!upper_cbf_enabled_) {
-          StartUpperNeutralRamp(this->get_clock()->now());
-        }
         RCLCPP_INFO(this->get_logger(),
                     "Received first /joint_states - starting in control mode");
       } else if (state_ == OrchestratorState::kDamp) {
@@ -439,36 +441,12 @@ class G1OrchestratorNode : public rclcpp::Node {
     }
   }
 
-  void BuildControlCommand(sensor_msgs::msg::JointState &cmd,
-                           const rclcpp::Time &now) {
-    double upper_neutral_ratio = 1.0;
-    if (!upper_cbf_enabled_ && upper_neutral_ramp_active_) {
-      upper_neutral_ratio = Clamp(
-          (now - upper_neutral_start_time_).seconds() /
-              NEUTRAL_DURATION_SECONDS,
-          0.0, 1.0);
-      if (upper_neutral_ratio >= 1.0) {
-        upper_neutral_ramp_active_ = false;
-      }
-    }
-
+  void BuildControlCommand(sensor_msgs::msg::JointState &cmd) {
     for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
       cmd.name.push_back(JOINT_NAMES[i]);
-      if (upper_cbf_enabled_ || i < G1_UPPER_BODY_START_INDEX) {
-        cmd.position.push_back(static_cast<double>(target_positions_[i]));
-        cmd.velocity.push_back(static_cast<double>(target_velocities_[i]));
-        cmd.effort.push_back(static_cast<double>(target_efforts_[i]));
-      } else {
-        cmd.position.push_back(
-            upper_neutral_ramp_active_
-                ? static_cast<double>(
-                      (1.0 - upper_neutral_ratio) *
-                          upper_neutral_start_positions_[i] +
-                      upper_neutral_ratio * DEFAULT_JOINT_POS[i])
-                : static_cast<double>(DEFAULT_JOINT_POS[i]));
-        cmd.velocity.push_back(0.0);
-        cmd.effort.push_back(0.0);
-      }
+      cmd.position.push_back(static_cast<double>(target_positions_[i]));
+      cmd.velocity.push_back(static_cast<double>(target_velocities_[i]));
+      cmd.effort.push_back(static_cast<double>(target_efforts_[i]));
     }
   }
 
@@ -487,7 +465,7 @@ class G1OrchestratorNode : public rclcpp::Node {
     if (state_ == OrchestratorState::kDamp) {
       BuildDampCommand(cmd);
     } else if (state_ == OrchestratorState::kControl) {
-      BuildControlCommand(cmd, cmd.header.stamp);
+      BuildControlCommand(cmd);
     } else {
       BuildNeutralCommand(cmd, cmd.header.stamp);
     }
@@ -499,34 +477,33 @@ class G1OrchestratorNode : public rclcpp::Node {
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr cbf_enabled_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr
+      external_cbf_enabled_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr
       workspace_enable_request_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
       joint_states_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
+  rclcpp::Subscription<g1_cbf_msg::msg::WorkspaceState>::SharedPtr
+      workspace_state_sub_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
 
   std::unordered_map<std::string, std::size_t> joint_map_;
   std::array<float, G1_NUM_MOTOR> current_positions_{};
   std::array<float, G1_NUM_MOTOR> neutral_start_positions_{};
-  std::array<float, G1_NUM_MOTOR> upper_neutral_start_positions_{};
   std::array<float, G1_NUM_MOTOR> target_positions_{};
   std::array<float, G1_NUM_MOTOR> target_velocities_{};
   std::array<float, G1_NUM_MOTOR> target_efforts_{};
   rclcpp::Time neutral_start_time_{};
-  rclcpp::Time upper_neutral_start_time_{};
   OrchestratorState state_{OrchestratorState::kNeutral};
   bool has_state_{false};
   bool has_latest_control_cmd_{false};
   bool neutral_ramp_active_{false};
-  bool upper_neutral_ramp_active_{false};
-  bool upper_cbf_enabled_{false};
+  bool external_cbf_enabled_{false};
   bool workspace_enable_requested_{false};
   bool last_control_button_pressed_{false};
-  bool last_upper_cbf_disable_button_pressed_{false};
-  bool last_upper_cbf_enable_button_pressed_{false};
-  bool last_workspace_cbf_disable_button_pressed_{false};
-  bool last_workspace_cbf_enable_button_pressed_{false};
+  bool last_external_cbf_toggle_button_pressed_{false};
+  bool last_workspace_cbf_toggle_button_pressed_{false};
 };
 
 int main(int argc, char **argv) {

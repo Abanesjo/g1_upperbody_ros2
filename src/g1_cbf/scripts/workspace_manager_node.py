@@ -261,6 +261,7 @@ class WorkspaceManagerNode(Node):
         msg.child_frame_id = self._workspace_frame
         msg.transform = workspace_transform(self._capture)
         msg.enabled = self._capture.enabled
+        msg.capture_pending = self._capture.pending
         msg.generation = self._capture.generation
         self._state_pub.publish(msg)
 
