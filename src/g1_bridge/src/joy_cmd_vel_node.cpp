@@ -12,12 +12,12 @@ constexpr std::size_t AXIS_LINEAR_Y = 0;
 constexpr std::size_t AXIS_LINEAR_X = 1;
 constexpr std::size_t AXIS_ANGULAR_Z = 3;
 
-constexpr double LIN_X_SCALE = 2.0;
+constexpr double LIN_X_SCALE = 1.0;
 constexpr double LIN_Y_SCALE = 1.0;
 constexpr double ANG_Z_SCALE = 1.0;
 
 constexpr double LIN_X_MIN = -1.0;
-constexpr double LIN_X_MAX = 2.0;
+constexpr double LIN_X_MAX = 1.0;
 constexpr double LIN_Y_MIN = -1.0;
 constexpr double LIN_Y_MAX = 1.0;
 constexpr double ANG_Z_MIN = -1.0;
