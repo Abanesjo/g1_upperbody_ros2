@@ -44,7 +44,7 @@ workspace_manager_node:
     publish_rate: 50.0
     capture_retry_timeout_sec: 0.5
     tf_lookup_timeout_sec: 0.0
-    tf_stale_timeout_sec: 0.2
+    tf_stale_timeout_sec: 0.5
     world_frame: "world"
     workspace_frame: "workspace"
     pelvis_frame: "pelvis"
@@ -70,7 +70,7 @@ workspace_cmd_vel_node:
     workspace_cbf_available: true
     joy_cmd_timeout_sec: 0.5
     tf_lookup_timeout_sec: 0.0
-    tf_stale_timeout_sec: 0.2
+    tf_stale_timeout_sec: 0.5
 
 g1_cbf_viz_node:
   ros__parameters:
@@ -102,7 +102,7 @@ cmd_vel_cbf_node:
     world_frame: "world"
     pelvis_frame: "pelvis"
     tf_lookup_timeout_sec: 0.0
-    tf_stale_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.5
     max_iter: 200
     solver_tol: 0.001
 
@@ -126,7 +126,7 @@ origin_cmd_vel_publisher_node:
     world_frame: "workspace"
     pelvis_frame: "pelvis"
     tf_lookup_timeout_sec: 0.0
-    tf_stale_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.5
 
 pelvis_circle_publisher_node:
   ros__parameters:

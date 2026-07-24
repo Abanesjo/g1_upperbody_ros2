@@ -64,7 +64,7 @@ class CmdVelCBFNode(Node):
         self.declare_parameter('world_frame', WORLD_FRAME)
         self.declare_parameter('pelvis_frame', PELVIS_FRAME)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
-        self.declare_parameter('tf_stale_timeout_sec', 0.0)
+        self.declare_parameter('tf_stale_timeout_sec', 0.5)
         self.declare_parameter('tf_timeout_sec', 0.0)
         self.declare_parameter('max_iter', 100)
         self.declare_parameter('solver_tol', 1e-3)

@@ -204,7 +204,7 @@ class WorkspaceCmdVelNode(Node):
         self.declare_parameter('workspace_cbf_available', True)
         self.declare_parameter('joy_cmd_timeout_sec', 0.5)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
-        self.declare_parameter('tf_stale_timeout_sec', 0.2)
+        self.declare_parameter('tf_stale_timeout_sec', 0.5)
         self.declare_parameter('tf_timeout_sec', 0.0)
         self.declare_parameter('orchestrator_required', True)
 

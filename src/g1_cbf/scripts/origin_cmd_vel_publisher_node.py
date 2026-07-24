@@ -55,7 +55,7 @@ class OriginCmdVelPublisherNode(Node):
         self.declare_parameter('world_frame', WORLD_FRAME)
         self.declare_parameter('pelvis_frame', PELVIS_FRAME)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
-        self.declare_parameter('tf_stale_timeout_sec', 0.0)
+        self.declare_parameter('tf_stale_timeout_sec', 0.5)
         self.declare_parameter('tf_timeout_sec', 0.0)
 
         self._rate_hz = float(self.get_parameter('rate_hz').value)

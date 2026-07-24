@@ -109,7 +109,7 @@ class WorkspaceManagerNode(Node):
         self.declare_parameter('publish_rate', 50.0)
         self.declare_parameter('capture_retry_timeout_sec', 0.5)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
-        self.declare_parameter('tf_stale_timeout_sec', 0.2)
+        self.declare_parameter('tf_stale_timeout_sec', 0.5)
 
         self._world_frame = normalize_frame(
             self.get_parameter('world_frame').value,
