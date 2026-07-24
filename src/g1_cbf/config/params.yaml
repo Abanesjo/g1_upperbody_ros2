@@ -38,6 +38,7 @@ g1_cbf_node:
     pelvis_frame: "pelvis"
     human_timeout_sec: 0.5
     tf_lookup_timeout_sec: 0.0
+    tf_stale_timeout_sec: 0.5
 
 workspace_manager_node:
   ros__parameters:

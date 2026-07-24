@@ -92,7 +92,9 @@ class TfPoseLookup:
             self._node.get_clock().now() - pose.stamp
         ).nanoseconds * 1e-9
         if age < 0.0:
-            return None
+            # A future-dated dynamic transform is not fresh evidence. Return
+            # infinity so every enabled stale-timeout gate fails closed.
+            return float('inf')
         return age
 
     def describe(self):

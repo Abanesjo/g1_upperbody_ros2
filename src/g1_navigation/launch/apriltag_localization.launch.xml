@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Mutually exclusive with RTAB-Map and odometry simulation. -->
+    <arg name="tag_pose_topic" default="/pose/tag_frame"/>
+    <arg name="pelvis_pose_topic" default="/pose/pelvis"/>
+    <arg name="odom_topic" default="/odom"/>
+    <arg name="diagnostics_topic" default="/diagnostics"/>
+    <arg name="world_frame" default="world"/>
+    <arg name="detected_tag_frame" default="tag_frame"/>
+    <arg name="tag_mount_frame" default="tag_mount_frame"/>
+    <arg name="pelvis_frame" default="pelvis"/>
+    <arg name="queue_depth" default="20"/>
+    <arg name="kinematic_wait_timeout_sec" default="0.20"/>
+    <arg name="source_stale_timeout_sec" default="0.50"/>
+    <arg name="future_tolerance_sec" default="0.05"/>
+    <arg name="tf_lookup_timeout_sec" default="0.0"/>
+    <arg name="retry_rate_hz" default="100.0"/>
+    <arg name="diagnostic_rate_hz" default="2.0"/>
+    <arg name="pose_position_stddev_m" default="0.05"/>
+    <arg name="pose_orientation_stddev_rad" default="0.08726646259971647"/>
+    <arg name="twist_linear_stddev_mps" default="1.0"/>
+    <arg name="twist_angular_stddev_radps" default="1.0"/>
+    <arg name="twist_min_dt_sec" default="0.02"/>
+    <arg name="twist_max_dt_sec" default="0.50"/>
+    <arg name="twist_max_linear_speed_mps" default="3.0"/>
+    <arg name="twist_max_angular_speed_radps" default="4.0"/>
+    <arg name="twist_max_translation_step_m" default="0.50"/>
+    <arg name="twist_max_rotation_step_rad" default="0.7853981633974483"/>
+    <arg name="use_sim_time" default="false"/>
+
+    <node pkg="g1_navigation" exec="apriltag_localization_node"
+        name="apriltag_localization_node" output="screen">
+        <param name="tag_pose_topic" value="$(var tag_pose_topic)"/>
+        <param name="pelvis_pose_topic" value="$(var pelvis_pose_topic)"/>
+        <param name="odom_topic" value="$(var odom_topic)"/>
+        <param name="diagnostics_topic" value="$(var diagnostics_topic)"/>
+        <param name="world_frame" value="$(var world_frame)"/>
+        <param name="detected_tag_frame" value="$(var detected_tag_frame)"/>
+        <param name="tag_mount_frame" value="$(var tag_mount_frame)"/>
+        <param name="pelvis_frame" value="$(var pelvis_frame)"/>
+        <param name="queue_depth" value="$(var queue_depth)"/>
+        <param name="kinematic_wait_timeout_sec"
+            value="$(var kinematic_wait_timeout_sec)"/>
+        <param name="source_stale_timeout_sec"
+            value="$(var source_stale_timeout_sec)"/>
+        <param name="future_tolerance_sec"
+            value="$(var future_tolerance_sec)"/>
+        <param name="tf_lookup_timeout_sec"
+            value="$(var tf_lookup_timeout_sec)"/>
+        <param name="retry_rate_hz" value="$(var retry_rate_hz)"/>
+        <param name="diagnostic_rate_hz"
+            value="$(var diagnostic_rate_hz)"/>
+        <param name="pose_position_stddev_m"
+            value="$(var pose_position_stddev_m)"/>
+        <param name="pose_orientation_stddev_rad"
+            value="$(var pose_orientation_stddev_rad)"/>
+        <param name="twist_linear_stddev_mps"
+            value="$(var twist_linear_stddev_mps)"/>
+        <param name="twist_angular_stddev_radps"
+            value="$(var twist_angular_stddev_radps)"/>
+        <param name="twist_min_dt_sec" value="$(var twist_min_dt_sec)"/>
+        <param name="twist_max_dt_sec" value="$(var twist_max_dt_sec)"/>
+        <param name="twist_max_linear_speed_mps"
+            value="$(var twist_max_linear_speed_mps)"/>
+        <param name="twist_max_angular_speed_radps"
+            value="$(var twist_max_angular_speed_radps)"/>
+        <param name="twist_max_translation_step_m"
+            value="$(var twist_max_translation_step_m)"/>
+        <param name="twist_max_rotation_step_rad"
+            value="$(var twist_max_rotation_step_rad)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+</launch>

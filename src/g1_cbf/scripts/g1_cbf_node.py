@@ -107,6 +107,7 @@ class G1CBFNode(Node):
         self.declare_parameter('human_timeout_sec', 0.5)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
         self.declare_parameter('tf_timeout_sec', 0.0)
+        self.declare_parameter('tf_stale_timeout_sec', 0.5)
 
         dt = self.get_parameter('dt').value
         internal_gamma = float(self.get_parameter('internal_gamma').value)
@@ -144,6 +145,16 @@ class G1CBFNode(Node):
         )
         if self._human_timeout_sec < 0.0:
             raise ValueError('human_timeout_sec must be non-negative')
+        self._tf_stale_timeout_sec = float(
+            self.get_parameter('tf_stale_timeout_sec').value
+        )
+        if (
+            not np.isfinite(self._tf_stale_timeout_sec)
+            or self._tf_stale_timeout_sec < 0.0
+        ):
+            raise ValueError(
+                'tf_stale_timeout_sec must be finite and non-negative'
+            )
         self._tf_pose_lookup = TfPoseLookup(
             self,
             self._world_frame,
@@ -499,6 +510,21 @@ class G1CBFNode(Node):
         if self.q_des_latest is None:
             return
 
+        human_capsules = self._active_human_capsules()
+        workspace_state = self._workspace_state
+        needs_pelvis_pose = self._needs_pelvis_pose(
+            human_capsules,
+            workspace_state,
+        )
+        pelvis_pose = (
+            self._lookup_pelvis_pose()
+            if needs_pelvis_pose
+            else None
+        )
+        if needs_pelvis_pose and pelvis_pose is None:
+            self._publish_localization_hold_command()
+            return
+
         dt = self.get_parameter('dt').value
         K = self.get_parameter('K').value
         max_vel = self.get_parameter('max_velocity').value
@@ -530,13 +556,6 @@ class G1CBFNode(Node):
         z = jnp.array(z_np, dtype=jnp.float64)
         u_des = jnp.array(dq_ref, dtype=jnp.float64)
         q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
-        human_capsules = self._active_human_capsules()
-        workspace_state = self._workspace_state
-        pelvis_pose = (
-            self._lookup_pelvis_pose()
-            if self._needs_pelvis_pose(human_capsules, workspace_state)
-            else None
-        )
         human_caps, human_mask = self._pack_human_capsules(
             pelvis_pose,
             human_capsules,
@@ -616,6 +635,10 @@ class G1CBFNode(Node):
         self._publish_empty_active_pairs(safe_msg.header.stamp)
         self.cmd_pub.publish(safe_msg)
 
+    def _publish_localization_hold_command(self):
+        """Hold measured joints when required world localization is unsafe."""
+        self._publish_disabled_command()
+
     def _publish_empty_active_pairs(self, stamp):
         if self.active_pairs_pub.get_subscription_count() == 0:
             return
@@ -662,9 +685,41 @@ class G1CBFNode(Node):
         if pose is None:
             self.get_logger().warn(
                 f'TF lookup failed for {self._tf_pose_lookup.describe()}: '
-                f'{reason}',
+                f'{reason}; holding current joints with zero velocity',
                 throttle_duration_sec=2.0,
             )
+            return None
+
+        values = np.concatenate([pose.position, pose.quat])
+        if not np.all(np.isfinite(values)):
+            self.get_logger().warn(
+                f'TF {self._tf_pose_lookup.describe()} contains non-finite '
+                'values; holding current joints with zero velocity',
+                throttle_duration_sec=2.0,
+            )
+            return None
+
+        age_sec = self._tf_pose_lookup.age_sec(pose)
+        if age_sec is not None and not np.isfinite(age_sec):
+            self.get_logger().warn(
+                f'TF {self._tf_pose_lookup.describe()} is future-dated; '
+                'holding current joints with zero velocity',
+                throttle_duration_sec=2.0,
+            )
+            return None
+        if (
+            self._tf_stale_timeout_sec > 0.0
+            and age_sec is not None
+            and age_sec > self._tf_stale_timeout_sec
+        ):
+            self.get_logger().warn(
+                f'TF {self._tf_pose_lookup.describe()} is stale by '
+                f'{age_sec:.3f}s (limit '
+                f'{self._tf_stale_timeout_sec:.3f}s); holding current '
+                'joints with zero velocity',
+                throttle_duration_sec=2.0,
+            )
+            return None
         return pose
 
     def _needs_pelvis_pose(self, human_capsules, workspace_state):

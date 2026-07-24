@@ -1,4 +1,5 @@
 import importlib.util
+import math
 from pathlib import Path
 from types import MethodType, SimpleNamespace
 
@@ -31,6 +32,9 @@ class _Logger:
         self.messages = []
 
     def info(self, message):
+        self.messages.append(message)
+
+    def warn(self, message, **_kwargs):
         self.messages.append(message)
 
 
@@ -75,6 +79,179 @@ def test_disabled_tick_bypasses_qp_and_follows_measured_joints():
     assert active_pairs.header.frame_id == 'pelvis'
     assert not active_pairs.robot_body_index
     assert not active_pairs.internal_body_a_index
+
+
+def test_required_missing_localization_holds_before_filter_or_qp():
+    measured = np.linspace(-0.4, 0.4, len(_MODULE.CONTROLLED_JOINTS))
+    command_pub = _Publisher()
+    active_pairs_pub = _Publisher()
+    node = SimpleNamespace(
+        q_ctrl=measured,
+        q_des_latest=np.full_like(measured, 0.8),
+        q_des_filtered=np.full_like(measured, 0.7),
+        q_cbf_target=np.full_like(measured, 0.6),
+        _cbf_enabled=True,
+        _workspace_state=(np.zeros(2), True, 1),
+        cmd_pub=command_pub,
+        active_pairs_pub=active_pairs_pub,
+        get_clock=lambda: SimpleNamespace(now=lambda: Time(seconds=12.0)),
+        _active_human_capsules=lambda: [],
+        _needs_pelvis_pose=lambda _humans, _workspace: True,
+        _lookup_pelvis_pose=lambda: None,
+    )
+    node._publish_empty_active_pairs = MethodType(
+        _MODULE.G1CBFNode._publish_empty_active_pairs,
+        node,
+    )
+    node._publish_disabled_command = MethodType(
+        _MODULE.G1CBFNode._publish_disabled_command,
+        node,
+    )
+    node._publish_localization_hold_command = MethodType(
+        _MODULE.G1CBFNode._publish_localization_hold_command,
+        node,
+    )
+
+    # There is deliberately no parameter accessor or CBF solver. The missing
+    # required pose must return before either command filtering or the QP.
+    _MODULE.G1CBFNode._tick(node)
+
+    assert node.q_cbf_target == pytest.approx(measured)
+    assert node.q_cbf_target is not measured
+    assert node.q_des_filtered is None
+    assert len(command_pub.messages) == 1
+    command = command_pub.messages[0]
+    assert command.position == pytest.approx(measured)
+    assert command.velocity == pytest.approx(np.zeros_like(measured))
+    assert len(active_pairs_pub.messages) == 1
+
+
+@pytest.mark.parametrize(
+    ('pose', 'age_sec', 'expected_pose', 'message_fragment'),
+    [
+        (None, None, None, 'TF lookup failed'),
+        (
+            SimpleNamespace(
+                position=np.zeros(3),
+                quat=np.array([0.0, 0.0, 0.0, 1.0]),
+            ),
+            0.501,
+            None,
+            'is stale by 0.501s',
+        ),
+        (
+            SimpleNamespace(
+                position=np.zeros(3),
+                quat=np.array([0.0, 0.0, 0.0, 1.0]),
+            ),
+            math.inf,
+            None,
+            'is future-dated',
+        ),
+        (
+            SimpleNamespace(
+                position=np.zeros(3),
+                quat=np.array([0.0, 0.0, 0.0, 1.0]),
+            ),
+            0.5,
+            'same',
+            None,
+        ),
+        (
+            SimpleNamespace(
+                position=np.zeros(3),
+                quat=np.array([0.0, 0.0, 0.0, 1.0]),
+            ),
+            None,
+            'same',
+            None,
+        ),
+    ],
+    ids=['missing', 'stale', 'future', 'fresh-boundary', 'zero-stamp'],
+)
+def test_pelvis_pose_lookup_rejects_unusable_localization(
+        pose, age_sec, expected_pose, message_fragment):
+    logger = _Logger()
+
+    class _TfLookup:
+        def lookup(self):
+            return pose, 'not connected' if pose is None else ''
+
+        def age_sec(self, _pose):
+            return age_sec
+
+        def describe(self):
+            return 'world -> pelvis'
+
+    node = SimpleNamespace(
+        _tf_pose_lookup=_TfLookup(),
+        _tf_stale_timeout_sec=0.5,
+        get_logger=lambda: logger,
+    )
+
+    result = _MODULE.G1CBFNode._lookup_pelvis_pose(node)
+
+    if expected_pose == 'same':
+        assert result is pose
+    else:
+        assert result is expected_pose
+    if message_fragment is None:
+        assert logger.messages == []
+    else:
+        assert any(message_fragment in message for message in logger.messages)
+
+
+def test_pelvis_pose_lookup_rejects_nonfinite_pose_and_disabled_age_gate():
+    logger = _Logger()
+    valid_pose = SimpleNamespace(
+        position=np.zeros(3),
+        quat=np.array([0.0, 0.0, 0.0, 1.0]),
+    )
+
+    class _TfLookup:
+        def __init__(self, pose):
+            self.pose = pose
+
+        def lookup(self):
+            return self.pose, ''
+
+        def age_sec(self, _pose):
+            return 10.0
+
+        def describe(self):
+            return 'world -> pelvis'
+
+    node = SimpleNamespace(
+        _tf_pose_lookup=_TfLookup(valid_pose),
+        _tf_stale_timeout_sec=0.0,
+        get_logger=lambda: logger,
+    )
+    assert _MODULE.G1CBFNode._lookup_pelvis_pose(node) is valid_pose
+
+    invalid_pose = SimpleNamespace(
+        position=np.array([np.nan, 0.0, 0.0]),
+        quat=np.array([0.0, 0.0, 0.0, 1.0]),
+    )
+    node._tf_pose_lookup = _TfLookup(invalid_pose)
+    assert _MODULE.G1CBFNode._lookup_pelvis_pose(node) is None
+    assert any('non-finite' in message for message in logger.messages)
+
+
+def test_tf_pose_future_stamp_maps_to_infinite_age_for_fail_closed_gates():
+    lookup = _MODULE.TfPoseLookup.__new__(_MODULE.TfPoseLookup)
+    lookup._node = SimpleNamespace(
+        get_clock=lambda: SimpleNamespace(
+            now=lambda: Time(seconds=10.0),
+        ),
+    )
+
+    zero_stamp_pose = SimpleNamespace(stamp=Time())
+    future_pose = SimpleNamespace(stamp=Time(seconds=10.1))
+    past_pose = SimpleNamespace(stamp=Time(seconds=9.75))
+
+    assert lookup.age_sec(zero_stamp_pose) is None
+    assert math.isinf(lookup.age_sec(future_pose))
+    assert lookup.age_sec(past_pose) == pytest.approx(0.25)
 
 
 def test_reenable_resets_filter_target_to_current_measurement():
