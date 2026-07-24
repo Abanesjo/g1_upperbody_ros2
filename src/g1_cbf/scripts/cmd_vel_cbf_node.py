@@ -158,7 +158,6 @@ class CmdVelCBFNode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
-
         self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_cb, qos)
         self.create_subscription(
             JointState, '/joint_states', self._joint_states_cb, qos,

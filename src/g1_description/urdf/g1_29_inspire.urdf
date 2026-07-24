@@ -1761,4 +1761,11 @@
     <mimic joint="R_pinky_proximal_joint" multiplier="1" offset="0"/>
   </joint>
 
+  <link name="tag_frame"/>
+  <joint name="imu_in_torso_to_tag_frame" type="fixed">
+    <origin xyz="0.05 0 0" rpy="-1.5707963267948966 0 1.5707963267948966"/>
+    <parent link="imu_in_torso"/>
+    <child link="tag_frame"/>
+  </joint>
+
 </robot>

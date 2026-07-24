@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from builtin_interfaces.msg import Time
 from g1_cbf_msg.msg import WorkspaceState
 from sensor_msgs.msg import Joy
 from std_msgs.msg import String
@@ -18,140 +19,190 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
 
-def _yaw_error(first, second):
-    return abs(_MODULE.wrap_angle(first - second))
-
-
-def test_interpolated_path_preserves_keyposes_and_resolution():
-    samples = _MODULE.interpolate_path(0.05, 5.0)
+def test_interpolated_path_is_two_by_five_metres_and_respects_resolution():
+    samples = _MODULE.interpolate_path(0.05)
     cursor = 0
-    for x, y, yaw_deg in _MODULE.KEY_POSES:
-        expected_yaw = _MODULE.wrap_angle(math.radians(yaw_deg))
+    for x, y in _MODULE.ROUTE_POINTS:
         while cursor < len(samples):
-            sx, sy, syaw = samples[cursor]
-            if (
-                np.linalg.norm(np.array([sx - x, sy - y])) < 1e-9
-                and _yaw_error(syaw, expected_yaw) < 1e-9
-            ):
+            sx, sy = samples[cursor]
+            if np.linalg.norm(np.array([sx - x, sy - y])) < 1e-9:
                 break
             cursor += 1
         assert cursor < len(samples)
         cursor += 1
 
     for previous, current in zip(samples[:-1], samples[1:]):
-        distance = np.linalg.norm(
-            np.array(current[:2]) - np.array(previous[:2])
-        )
+        distance = np.linalg.norm(np.array(current) - np.array(previous))
         assert distance <= 0.050001
-        if distance < 1e-9:
-            assert _yaw_error(current[2], previous[2]) <= math.radians(5.001)
+    xy = np.asarray(samples)
+    assert np.ptp(xy[:, 0]) == pytest.approx(2.0)
+    assert np.ptp(xy[:, 1]) == pytest.approx(5.0)
+    assert samples[-1] == pytest.approx([0.0, 0.0])
 
 
-def test_follower_drives_straight_then_turns_in_place():
+def test_target_advances_at_point_two_five_with_fixed_robot():
     follower = _MODULE.RectangleFollower()
-    velocity, yaw_rate = follower.command(np.array([0.0, 0.0]), 0.0)
-    assert velocity == pytest.approx([0.0, 0.0])
+    position = np.zeros(2)
+
+    velocity, yaw_rate = follower.command(position, 0.0, elapsed_sec=1.0)
+    assert follower.target_distance == pytest.approx(0.25)
+    assert follower.target == pytest.approx([0.25, 0.0])
+    assert np.linalg.norm(velocity) == pytest.approx(0.25)
+    assert yaw_rate == pytest.approx(0.0)
+
+    follower.command(position, 0.0, elapsed_sec=1.0)
+    assert follower.target_distance == pytest.approx(0.50)
+    assert follower.target == pytest.approx([0.50, 0.0])
+
+
+def test_initial_and_slightly_ahead_robot_use_forward_path_tangent():
+    follower = _MODULE.RectangleFollower()
+
+    velocity, yaw_rate = follower.command(np.zeros(2), 0.0)
+    assert velocity == pytest.approx([0.25, 0.0])
     assert yaw_rate == 0.0
 
-    velocity, yaw_rate = follower.command(np.array([0.0, 0.0]), 0.0)
-    assert velocity == pytest.approx([0.5, 0.0])
-    assert yaw_rate == 0.0
-
-    velocity, _ = follower.command(np.array([0.8, 0.0]), 0.0)
-    assert velocity == pytest.approx([0.0, 0.0])
-    velocity, yaw_rate = follower.command(np.array([0.8, 0.0]), 0.0)
-    assert velocity == pytest.approx([0.0, 0.0])
-    assert yaw_rate > 0.0
-
-
-def test_follower_advances_around_unreachable_circle_corner():
-    follower = _MODULE.RectangleFollower()
-    follower.initial_pose_complete = True
-    follower.phase_index = 2
-    # A 1.4 m safe radius (2.0 m circle minus configured margins) cannot
-    # reach (0.8, 2.0).  This point lies on that safe perimeter and is already
-    # closer to the next, horizontal segment than the current vertical one.
-    velocity, yaw_rate = follower.command(np.array([0.0, 1.4]), math.pi / 2)
-    assert follower.phase_index == 3
-    assert velocity == pytest.approx([0.0, 0.0])
+    velocity, yaw_rate = follower.command(np.array([0.05, 0.0]), 0.0)
+    assert velocity == pytest.approx([0.25, 0.0])
     assert yaw_rate == 0.0
 
 
-def test_follower_does_not_fight_expected_cbf_detour():
+def test_target_progress_is_not_gated_by_robot_or_workspace_circle():
     follower = _MODULE.RectangleFollower()
-    follower.initial_pose_complete = True
-    follower.phase_index = 2
+    blocked_position = np.array([0.0, 1.4])
+
+    follower.command(blocked_position, 0.0, elapsed_sec=10.0)
+    assert follower.target == pytest.approx([1.0, 1.5])
+    follower.command(blocked_position, 0.0, elapsed_sec=10.0)
+    assert follower.target == pytest.approx([-0.5, 2.5])
+
+
+def test_velocity_and_heading_always_point_at_current_target():
+    follower = _MODULE.RectangleFollower(heading_kp=1.5)
+    position = np.array([0.0, 0.0])
     velocity, yaw_rate = follower.command(
-        np.array([0.6, 0.5]),
-        math.pi / 2,
-        cbf_active=True,
-        safe_radius=1.4,
+        position,
+        0.0,
+        elapsed_sec=5.0,
     )
-    assert velocity == pytest.approx([0.0, 0.5])
-    assert yaw_rate == 0.0
+
+    target_direction = follower.target - position
+    target_direction /= np.linalg.norm(target_direction)
+    assert velocity / np.linalg.norm(velocity) == pytest.approx(
+        target_direction
+    )
+    assert np.linalg.norm(velocity) == pytest.approx(0.25)
+    expected_bearing = math.atan2(target_direction[1], target_direction[0])
+    assert yaw_rate == pytest.approx(1.5 * expected_bearing)
 
 
-def test_follower_completes_route_with_ideal_circle_cbf_projection():
+def test_elapsed_zero_pauses_and_reset_returns_target_to_origin():
     follower = _MODULE.RectangleFollower()
-    position = np.zeros(2, dtype=np.float64)
-    yaw = 0.0
-    safe_radius = 1.4
-    dt = 0.02
-    visited_phases = []
+    follower.command(np.zeros(2), 0.0, elapsed_sec=2.0)
+    paused_target = follower.target.copy()
 
-    for _ in range(5000):
-        previous_phase = follower.phase_index
-        velocity, yaw_rate = follower.command(
-            position,
-            yaw,
-            cbf_active=True,
-            safe_radius=safe_radius,
-        )
+    follower.command(np.zeros(2), 0.0, elapsed_sec=0.0)
+    assert follower.target == pytest.approx(paused_target)
+    follower.reset()
+    assert follower.target_distance == 0.0
+    assert follower.target == pytest.approx([0.0, 0.0])
 
-        radius = float(np.linalg.norm(position))
-        outward_speed = float(np.dot(position, velocity))
-        if radius >= safe_radius - 1e-6 and outward_speed > 0.0:
-            velocity -= position * (
-                outward_speed / max(float(np.dot(position, position)), 1e-12)
-            )
 
-        position += dt * velocity
-        radius = float(np.linalg.norm(position))
-        if radius > safe_radius:
-            position *= safe_radius / radius
-        yaw = _MODULE.wrap_angle(yaw + dt * yaw_rate)
+class _FakeTime:
+    def __init__(self, nanoseconds):
+        self.nanoseconds = nanoseconds
 
-        if follower.phase_index != previous_phase:
-            visited_phases.append(follower.phase_index)
-        if follower.finished:
-            break
+    def __sub__(self, other):
+        return _FakeTime(self.nanoseconds - other.nanoseconds)
 
+
+def test_path_clock_resumes_without_counting_paused_time():
+    times = iter((
+        _FakeTime(1_000_000_000),
+        _FakeTime(1_100_000_000),
+        _FakeTime(5_000_000_000),
+    ))
+    node = SimpleNamespace(
+        _last_path_tick_time=None,
+        get_clock=lambda: SimpleNamespace(now=lambda: next(times)),
+    )
+
+    assert _MODULE.WorkspaceCmdVelNode._path_elapsed_sec(node) == 0.0
+    elapsed = _MODULE.WorkspaceCmdVelNode._path_elapsed_sec(node)
+    assert elapsed == pytest.approx(0.1)
+    _MODULE.WorkspaceCmdVelNode._pause_path_progress(node)
+    assert _MODULE.WorkspaceCmdVelNode._path_elapsed_sec(node) == 0.0
+
+
+def test_follower_waits_at_final_target_until_robot_arrives():
+    follower = _MODULE.RectangleFollower()
+    far_position = np.array([-1.0, 0.0])
+    velocity, _ = follower.command(
+        far_position,
+        0.0,
+        elapsed_sec=follower.total_length / follower.speed + 1.0,
+    )
+    assert follower.target == pytest.approx([0.0, 0.0])
+    assert not follower.finished
+    assert velocity == pytest.approx([0.25, 0.0])
+
+    velocity, yaw_rate = follower.command(
+        np.array([-0.05, 0.0]),
+        0.0,
+        elapsed_sec=0.0,
+    )
     assert follower.finished
-    assert visited_phases == list(range(1, len(follower.phases) + 1))
-    assert np.linalg.norm(position - np.array([0.8, 0.0])) <= 0.12
-    assert _yaw_error(yaw, math.pi / 2) <= follower.yaw_tolerance
-
-
-def test_follower_stops_after_final_pose():
-    follower = _MODULE.RectangleFollower()
-    follower.initial_pose_complete = True
-    follower.phase_index = len(follower.phases) - 1
-    velocity, yaw_rate = follower.command(np.array([0.8, 0.0]), math.pi / 2)
-    assert follower.finished
-    assert velocity == pytest.approx([0.0, 0.0])
-    assert yaw_rate == 0.0
-    velocity, yaw_rate = follower.command(np.array([0.0, 0.0]), 0.0)
     assert velocity == pytest.approx([0.0, 0.0])
     assert yaw_rate == 0.0
 
 
-def test_follower_advances_after_joystick_overshoots_endpoint():
-    follower = _MODULE.RectangleFollower()
-    follower.initial_pose_complete = True
-    velocity, yaw_rate = follower.command(np.array([1.2, 0.0]), 0.0)
-    assert follower.phase_index == 1
-    assert velocity == pytest.approx([0.0, 0.0])
-    assert yaw_rate == 0.0
+class _Publisher:
+    def __init__(self):
+        self.messages = []
+
+    def publish(self, msg):
+        self.messages.append(msg)
+
+
+def test_path_poses_use_identity_orientation():
+    publisher = _Publisher()
+    node = SimpleNamespace(
+        _workspace_frame='workspace',
+        _path_resolution=0.05,
+        _path_pub=publisher,
+        get_clock=lambda: SimpleNamespace(
+            now=lambda: SimpleNamespace(to_msg=lambda: Time(sec=8))
+        ),
+    )
+    _MODULE.WorkspaceCmdVelNode._publish_path(node)
+
+    msg = publisher.messages[0]
+    assert msg.header.frame_id == 'workspace'
+    assert msg.header.stamp.sec == 8
+    assert all(pose.pose.orientation.w == 1.0 for pose in msg.poses)
+    assert all(pose.pose.orientation.x == 0.0 for pose in msg.poses)
+    assert all(pose.pose.orientation.y == 0.0 for pose in msg.poses)
+    assert all(pose.pose.orientation.z == 0.0 for pose in msg.poses)
+
+
+def test_planar_reference_point_is_exact_active_target_in_workspace():
+    publisher = _Publisher()
+    node = SimpleNamespace(
+        _workspace_frame='workspace',
+        _planar_reference_pub=publisher,
+        get_clock=lambda: SimpleNamespace(
+            now=lambda: SimpleNamespace(to_msg=lambda: Time(sec=9))
+        ),
+    )
+    target = np.array([1.0, 0.4])
+    _MODULE.WorkspaceCmdVelNode._publish_planar_reference(node, target)
+
+    msg = publisher.messages[0]
+    assert msg.header.frame_id == 'workspace'
+    assert msg.header.stamp.sec == 9
+    assert [msg.point.x, msg.point.y, msg.point.z] == pytest.approx(
+        [1.0, 0.4, 0.0]
+    )
 
 
 def test_workspace_to_body_supports_holonomic_motion():
@@ -184,6 +235,7 @@ def _authority_node(workspace_enabled=True, orchestrator_required=True,
         _workspace_generation=0,
         _await_tf_stamp_ns=None,
         _follower=follower,
+        _pause_path_progress=lambda: None,
         _control_available=lambda: True,
         _button_pressed=_MODULE.WorkspaceCmdVelNode._button_pressed,
         _reset_center_history=lambda: None,

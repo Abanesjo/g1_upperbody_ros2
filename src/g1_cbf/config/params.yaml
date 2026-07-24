@@ -19,7 +19,7 @@ g1_cbf_node:
     # L/R thigh_ext, L/R hand, L/R shin)
     human_half_lengths: [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.16, 0.16, 0.225, 0.225]
     human_radii: [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.10, 0.10, 0.065, 0.065]
-    human_radius_scale: 1.5
+    human_radius_scale: 1.0
     external_filter_enabled: false
     external_activation_distance: 0.35
     external_max_active_pairs: 16
@@ -54,14 +54,10 @@ workspace_cmd_vel_node:
     rate_hz: 50.0
     workspace_frame: "workspace"
     pelvis_frame: "pelvis"
-    path_speed: 0.5
+    path_speed: 0.35
     tracking_radius: 0.1
     path_resolution: 0.05
-    path_yaw_resolution_deg: 5.0
-    cross_track_gain: 1.0
-    max_cross_track_speed: 0.2
-    path_yaw_kp: 1.5
-    path_yaw_tolerance_deg: 5.0
+    path_heading_kp: 1.5
     center_kp_linear: 0.5
     center_kd_linear: 0.05
     center_kp_yaw: 1.0
@@ -72,7 +68,6 @@ workspace_cmd_vel_node:
     max_linear_y: 0.5
     max_angular_z: 1.0
     workspace_cbf_available: true
-    workspace_safe_radius: 1.4
     joy_cmd_timeout_sec: 0.5
     tf_lookup_timeout_sec: 0.0
     tf_stale_timeout_sec: 0.2
@@ -95,8 +90,8 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.05
-    external_gamma: 2.0
+    external_margin_phi: 0.3
+    external_gamma: 1.0
     head_collider_radius: 0.3
     world_circle_radius: 1.5
     cmd_vel_limits:

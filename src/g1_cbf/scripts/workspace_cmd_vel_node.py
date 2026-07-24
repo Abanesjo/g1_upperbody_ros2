@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Arbitrate joystick, workspace-path, and center-seeking commands."""
 
-from dataclasses import dataclass
 import math
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PointStamped, PoseStamped, Twist
 from nav_msgs.msg import Path
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -36,19 +35,15 @@ AUTHORITY_JOYSTICK = 'joystick'
 AUTHORITY_PATH = 'path'
 AUTHORITY_CENTER = 'center'
 
-KEY_POSES = (
-    (0.0, 0.0, 0.0),
-    (0.8, 0.0, 0.0),
-    (0.8, 0.0, 90.0),
-    (0.8, 2.0, 90.0),
-    (0.8, 2.0, 180.0),
-    (-0.8, 2.0, 180.0),
-    (-0.8, 2.0, 270.0),
-    (-0.8, -2.0, 270.0),
-    (-0.8, -2.0, 0.0),
-    (0.8, -2.0, 0.0),
-    (0.8, -2.0, 90.0),
-    (0.8, 0.0, 90.0),
+ROUTE_POINTS = (
+    (0.0, 0.0),
+    (1.0, 0.0),
+    (1.0, 2.5),
+    (-1.0, 2.5),
+    (-1.0, -2.5),
+    (1.0, -2.5),
+    (1.0, 0.0),
+    (0.0, 0.0),
 )
 
 SENSOR_QOS = QoSProfile(
@@ -63,6 +58,13 @@ STATE_QOS = QoSProfile(
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
+)
+
+REFERENCE_POINT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
 )
 
 
@@ -86,199 +88,97 @@ def workspace_to_body(vector, yaw):
     ], dtype=np.float64)
 
 
-def _clip_norm(vector, limit):
-    norm = float(np.linalg.norm(vector))
-    if norm <= limit or norm < 1e-12:
-        return vector
-    return vector * (limit / norm)
-
-
-def _point_segment_distance(point, start, end):
-    segment = end - start
-    length_sq = float(np.dot(segment, segment))
-    if length_sq < 1e-12:
-        return float(np.linalg.norm(point - start))
-    ratio = float(np.dot(point - start, segment) / length_sq)
-    projection = start + np.clip(ratio, 0.0, 1.0) * segment
-    return float(np.linalg.norm(point - projection))
-
-
-@dataclass(frozen=True)
-class MotionPhase:
-    kind: str
-    start: np.ndarray
-    end: np.ndarray
-    yaw: float
-
-
-def build_motion_phases():
-    phases = []
-    for previous, current in zip(KEY_POSES[:-1], KEY_POSES[1:]):
-        start = np.array(previous[:2], dtype=np.float64)
-        end = np.array(current[:2], dtype=np.float64)
-        yaw = math.radians(current[2])
-        kind = 'translate' if np.linalg.norm(end - start) > 1e-9 else 'rotate'
-        phases.append(MotionPhase(kind, start, end, yaw))
-    return tuple(phases)
-
-
-def interpolate_path(linear_resolution=0.05, yaw_resolution_deg=5.0):
-    samples = [KEY_POSES[0]]
-    yaw_resolution = math.radians(yaw_resolution_deg)
-    for previous, current in zip(KEY_POSES[:-1], KEY_POSES[1:]):
-        start_xy = np.array(previous[:2], dtype=np.float64)
-        end_xy = np.array(current[:2], dtype=np.float64)
+def interpolate_path(linear_resolution=0.05):
+    samples = [ROUTE_POINTS[0]]
+    for previous, current in zip(ROUTE_POINTS[:-1], ROUTE_POINTS[1:]):
+        start_xy = np.array(previous, dtype=np.float64)
+        end_xy = np.array(current, dtype=np.float64)
         distance = float(np.linalg.norm(end_xy - start_xy))
-        start_yaw = math.radians(previous[2])
-        yaw_delta = wrap_angle(math.radians(current[2]) - start_yaw)
-        if distance > 1e-9:
-            count = max(1, int(math.ceil(distance / linear_resolution)))
-        else:
-            count = max(1, int(math.ceil(abs(yaw_delta) / yaw_resolution)))
+        count = max(1, int(math.ceil(distance / linear_resolution)))
         for index in range(1, count + 1):
             ratio = index / count
             xy = start_xy + ratio * (end_xy - start_xy)
-            yaw = wrap_angle(start_yaw + ratio * yaw_delta)
-            samples.append((float(xy[0]), float(xy[1]), yaw))
+            samples.append((float(xy[0]), float(xy[1])))
     return samples
 
 
 class RectangleFollower:
-    """Ordered straight/turn controller that tolerates CBF corner detours."""
+    """Follow a target that moves along the route at a fixed rate."""
 
-    def __init__(self, speed=0.5, tracking_radius=0.1,
-                 cross_track_gain=1.0, max_cross_track_speed=0.2,
-                 yaw_kp=1.5, yaw_tolerance=math.radians(5.0),
-                 max_yaw_rate=1.0):
+    def __init__(self, speed=0.25, tracking_radius=0.1,
+                 heading_kp=1.5, max_yaw_rate=1.0):
         self.speed = speed
         self.tracking_radius = tracking_radius
-        self.cross_track_gain = cross_track_gain
-        self.max_cross_track_speed = max_cross_track_speed
-        self.yaw_kp = yaw_kp
-        self.yaw_tolerance = yaw_tolerance
+        self.heading_kp = heading_kp
         self.max_yaw_rate = max_yaw_rate
-        self.phases = build_motion_phases()
+        self._points = np.asarray(ROUTE_POINTS, dtype=np.float64)
+        self._segments = self._points[1:] - self._points[:-1]
+        self._segment_lengths = np.linalg.norm(self._segments, axis=1)
+        self._cumulative_lengths = np.concatenate((
+            np.zeros(1, dtype=np.float64),
+            np.cumsum(self._segment_lengths),
+        ))
+        self.total_length = float(self._cumulative_lengths[-1])
         self.reset()
 
     def reset(self):
-        self.initial_pose_complete = False
-        self.phase_index = 0
-        self.phase_progress = 0.0
+        self.target_distance = 0.0
         self.finished = False
 
-    def command(self, position, yaw, cbf_active=False, safe_radius=None):
+    @property
+    def target(self):
+        target, _ = self._target_and_tangent(self.target_distance)
+        return target
+
+    def command(self, position, yaw, elapsed_sec=0.0):
         position = np.asarray(position, dtype=np.float64)
         zero = np.zeros(2, dtype=np.float64)
         if self.finished:
             return zero, 0.0
 
-        if not self.initial_pose_complete:
-            target = np.array(KEY_POSES[0][:2], dtype=np.float64)
-            delta = target - position
-            yaw_error = wrap_angle(math.radians(KEY_POSES[0][2]) - yaw)
-            if (
-                np.linalg.norm(delta) <= self.tracking_radius
-                and abs(yaw_error) <= self.yaw_tolerance
-            ):
-                self.initial_pose_complete = True
-                return zero, 0.0
-            velocity = _clip_norm(delta, self.speed)
-            yaw_rate = float(np.clip(
-                self.yaw_kp * yaw_error,
-                -self.max_yaw_rate,
-                self.max_yaw_rate,
-            ))
-            return velocity, yaw_rate
+        if not math.isfinite(elapsed_sec) or elapsed_sec < 0.0:
+            raise ValueError('elapsed_sec must be finite and non-negative')
+        self.target_distance = min(
+            self.total_length,
+            self.target_distance + self.speed * elapsed_sec,
+        )
+        target, tangent = self._target_and_tangent(self.target_distance)
+        delta = target - position
+        distance = float(np.linalg.norm(delta))
 
-        if self.phase_index >= len(self.phases):
+        at_final_target = self.target_distance >= self.total_length
+        if at_final_target and distance <= self.tracking_radius:
             self.finished = True
             return zero, 0.0
 
-        phase = self.phases[self.phase_index]
-        if phase.kind == 'rotate':
-            yaw_error = wrap_angle(phase.yaw - yaw)
-            if abs(yaw_error) <= self.yaw_tolerance:
-                self.phase_index += 1
-                self.phase_progress = 0.0
-                if self.phase_index >= len(self.phases):
-                    self.finished = True
-                return zero, 0.0
-            return zero, float(np.clip(
-                self.yaw_kp * yaw_error,
-                -self.max_yaw_rate,
-                self.max_yaw_rate,
-            ))
-
-        segment = phase.end - phase.start
-        length = float(np.linalg.norm(segment))
-        tangent = segment / length
-        along = float(np.dot(position - phase.start, tangent))
-        self.phase_progress = max(self.phase_progress, along)
-        endpoint_reached = (
-            np.linalg.norm(position - phase.end) <= self.tracking_radius
+        follow_tangent = (
+            not at_final_target and distance <= self.tracking_radius
         )
-        endpoint_passed = along >= length
-        next_segment_reached = self._next_segment_is_closer(
-            position, phase, length
-        )
-        if endpoint_reached or endpoint_passed or next_segment_reached:
-            self.phase_index += 1
-            self.phase_progress = 0.0
-            if self.phase_index >= len(self.phases):
-                self.finished = True
-            return zero, 0.0
-
-        projection = phase.start + along * tangent
-        cross_track_error = position - projection
-        cbf_detour_expected = (
-            cbf_active
-            and safe_radius is not None
-            and safe_radius > 0.0
-            and np.linalg.norm(phase.end) > safe_radius
-        )
-        if cbf_detour_expected:
-            # Let the CBF project the pure segment direction onto its circle.
-            # Pulling laterally toward an unreachable rectangle edge can
-            # otherwise cancel that tangential motion and stall the robot.
-            correction = zero
-        else:
-            correction = _clip_norm(
-                -self.cross_track_gain * cross_track_error,
-                self.max_cross_track_speed,
-            )
-        velocity = self.speed * tangent + correction
-        yaw_error = wrap_angle(phase.yaw - yaw)
+        direction = tangent if follow_tangent else delta / distance
+        velocity = self.speed * direction
+        desired_yaw = math.atan2(direction[1], direction[0])
+        yaw_error = wrap_angle(desired_yaw - yaw)
         yaw_rate = float(np.clip(
-            self.yaw_kp * yaw_error,
+            self.heading_kp * yaw_error,
             -self.max_yaw_rate,
             self.max_yaw_rate,
         ))
         return velocity, yaw_rate
 
-    def _next_segment_is_closer(self, position, phase, length):
-        # The rectangle deliberately extends beyond the circular CBF.  At an
-        # unreachable corner the filtered motion follows the circle instead
-        # of ever reaching the phase endpoint.  Once the robot is past the
-        # segment midpoint and geometrically closer to the following segment,
-        # hand off the nominal direction so the CBF can keep carrying it
-        # around the perimeter.
-        handoff_progress = max(self.tracking_radius, 0.5 * length)
-        if self.phase_progress < handoff_progress:
-            return False
-        next_phase = None
-        for candidate in self.phases[self.phase_index + 1:]:
-            if candidate.kind == 'translate':
-                next_phase = candidate
-                break
-        if next_phase is None:
-            return False
-        current_distance = _point_segment_distance(
-            position, phase.start, phase.end
-        )
-        next_distance = _point_segment_distance(
-            position, next_phase.start, next_phase.end
-        )
-        return next_distance < current_distance
+    def _target_and_tangent(self, distance):
+        if distance >= self.total_length:
+            index = len(self._segments) - 1
+            return self._points[-1].copy(), (
+                self._segments[index] / self._segment_lengths[index]
+            )
+        index = int(np.searchsorted(
+            self._cumulative_lengths[1:],
+            distance,
+            side='right',
+        ))
+        along = distance - self._cumulative_lengths[index]
+        tangent = self._segments[index] / self._segment_lengths[index]
+        return self._points[index] + along * tangent, tangent
 
 
 class WorkspaceCmdVelNode(Node):
@@ -288,14 +188,10 @@ class WorkspaceCmdVelNode(Node):
         self.declare_parameter('rate_hz', 50.0)
         self.declare_parameter('workspace_frame', WORKSPACE_FRAME)
         self.declare_parameter('pelvis_frame', PELVIS_FRAME)
-        self.declare_parameter('path_speed', 0.5)
+        self.declare_parameter('path_speed', 0.25)
         self.declare_parameter('tracking_radius', 0.1)
         self.declare_parameter('path_resolution', 0.05)
-        self.declare_parameter('path_yaw_resolution_deg', 5.0)
-        self.declare_parameter('cross_track_gain', 1.0)
-        self.declare_parameter('max_cross_track_speed', 0.2)
-        self.declare_parameter('path_yaw_kp', 1.5)
-        self.declare_parameter('path_yaw_tolerance_deg', 5.0)
+        self.declare_parameter('path_heading_kp', 1.5)
         self.declare_parameter('center_kp_linear', 0.5)
         self.declare_parameter('center_kd_linear', 0.05)
         self.declare_parameter('center_kp_yaw', 1.0)
@@ -306,7 +202,6 @@ class WorkspaceCmdVelNode(Node):
         self.declare_parameter('max_linear_y', 0.5)
         self.declare_parameter('max_angular_z', 1.0)
         self.declare_parameter('workspace_cbf_available', True)
-        self.declare_parameter('workspace_safe_radius', 1.4)
         self.declare_parameter('joy_cmd_timeout_sec', 0.5)
         self.declare_parameter('tf_lookup_timeout_sec', 0.0)
         self.declare_parameter('tf_stale_timeout_sec', 0.2)
@@ -325,10 +220,7 @@ class WorkspaceCmdVelNode(Node):
         self._follower = RectangleFollower(
             speed=self._path_speed,
             tracking_radius=self._tracking_radius,
-            cross_track_gain=self._cross_track_gain,
-            max_cross_track_speed=self._max_cross_track_speed,
-            yaw_kp=self._path_yaw_kp,
-            yaw_tolerance=self._path_yaw_tolerance,
+            heading_kp=self._path_heading_kp,
             max_yaw_rate=self._max_angular_z,
         )
 
@@ -346,6 +238,7 @@ class WorkspaceCmdVelNode(Node):
         self._workspace_generation = None
         self._capture_pause = False
         self._await_tf_stamp_ns = None
+        self._last_path_tick_time = None
         self._last_center_xy = None
         self._last_center_yaw = None
         self._last_center_time = None
@@ -353,6 +246,11 @@ class WorkspaceCmdVelNode(Node):
         self._cmd_pub = self.create_publisher(Twist, '/cmd_vel', SENSOR_QOS)
         self._path_pub = self.create_publisher(
             Path, '/workspace_path', STATE_QOS
+        )
+        self._planar_reference_pub = self.create_publisher(
+            PointStamped,
+            '/cbf/planar_reference_point',
+            REFERENCE_POINT_QOS,
         )
         self.create_subscription(
             Twist, '/cmd_vel_joy', self._joy_cmd_cb, SENSOR_QOS
@@ -391,17 +289,7 @@ class WorkspaceCmdVelNode(Node):
         self._path_speed = float(value('path_speed'))
         self._tracking_radius = float(value('tracking_radius'))
         self._path_resolution = float(value('path_resolution'))
-        self._path_yaw_resolution_deg = float(
-            value('path_yaw_resolution_deg')
-        )
-        self._cross_track_gain = float(value('cross_track_gain'))
-        self._max_cross_track_speed = float(
-            value('max_cross_track_speed')
-        )
-        self._path_yaw_kp = float(value('path_yaw_kp'))
-        self._path_yaw_tolerance = math.radians(
-            float(value('path_yaw_tolerance_deg'))
-        )
+        self._path_heading_kp = float(value('path_heading_kp'))
         self._center_kp_linear = float(value('center_kp_linear'))
         self._center_kd_linear = float(value('center_kd_linear'))
         self._center_kp_yaw = float(value('center_kp_yaw'))
@@ -418,7 +306,6 @@ class WorkspaceCmdVelNode(Node):
         self._workspace_cbf_available = bool(
             value('workspace_cbf_available')
         )
-        self._workspace_safe_radius = float(value('workspace_safe_radius'))
         self._joy_cmd_timeout_sec = float(value('joy_cmd_timeout_sec'))
         self._tf_stale_timeout_sec = float(value('tf_stale_timeout_sec'))
         self._orchestrator_required = bool(value('orchestrator_required'))
@@ -429,18 +316,15 @@ class WorkspaceCmdVelNode(Node):
             'path_speed': self._path_speed,
             'tracking_radius': self._tracking_radius,
             'path_resolution': self._path_resolution,
-            'path_yaw_resolution_deg': self._path_yaw_resolution_deg,
+            'path_heading_kp': self._path_heading_kp,
             'max_linear_x': self._max_linear_x,
             'max_linear_y': self._max_linear_y,
             'max_angular_z': self._max_angular_z,
-            'workspace_safe_radius': self._workspace_safe_radius,
         }
         for name, value in positive.items():
             if value <= 0.0:
                 raise ValueError(f'{name} must be positive')
         nonnegative = {
-            'cross_track_gain': self._cross_track_gain,
-            'max_cross_track_speed': self._max_cross_track_speed,
             'joy_cmd_timeout_sec': self._joy_cmd_timeout_sec,
             'tf_stale_timeout_sec': self._tf_stale_timeout_sec,
         }
@@ -509,6 +393,7 @@ class WorkspaceCmdVelNode(Node):
 
         if generation_changed:
             self._follower.reset()
+            self._pause_path_progress()
             self._reset_center_history()
             self._await_tf_stamp_ns = (
                 int(msg.header.stamp.sec) * 1_000_000_000
@@ -517,6 +402,8 @@ class WorkspaceCmdVelNode(Node):
             self._publish_path()
 
         self._capture_pause = self._capture_pending
+        if self._capture_pause:
+            self._pause_path_progress()
         if (
             not self._capture_pending
             and not self._workspace_enabled
@@ -528,6 +415,7 @@ class WorkspaceCmdVelNode(Node):
         if authority == self._authority:
             return
         self._authority = authority
+        self._pause_path_progress()
         self._reset_center_history()
         self.get_logger().info(f'cmd_vel authority: {authority}')
 
@@ -540,15 +428,18 @@ class WorkspaceCmdVelNode(Node):
     def _tick(self):
         cmd = Twist()
         if not self._control_available():
+            self._pause_path_progress()
             self._cmd_pub.publish(cmd)
             return
 
         if self._authority == AUTHORITY_JOYSTICK:
+            self._pause_path_progress()
             cmd = self._fresh_joy_command()
             self._cmd_pub.publish(cmd)
             return
 
         if self._capture_pause:
+            self._pause_path_progress()
             self._cmd_pub.publish(cmd)
             return
 
@@ -558,6 +449,7 @@ class WorkspaceCmdVelNode(Node):
                 f'Autonomous cmd_vel paused: {reason}',
                 throttle_duration_sec=2.0,
             )
+            self._pause_path_progress()
             self._cmd_pub.publish(cmd)
             return
 
@@ -567,12 +459,9 @@ class WorkspaceCmdVelNode(Node):
             velocity_ws, yaw_rate = self._follower.command(
                 position,
                 yaw,
-                cbf_active=(
-                    self._workspace_cbf_available
-                    and self._workspace_enabled
-                ),
-                safe_radius=self._workspace_safe_radius,
+                self._path_elapsed_sec(),
             )
+            self._publish_planar_reference(self._follower.target)
             velocity_body = workspace_to_body(velocity_ws, yaw)
             cmd.linear.x = float(np.clip(
                 velocity_body[0], -self._max_linear_x, self._max_linear_x
@@ -584,6 +473,7 @@ class WorkspaceCmdVelNode(Node):
                 yaw_rate, -self._max_angular_z, self._max_angular_z
             ))
         else:
+            self._pause_path_progress()
             cmd = self._center_command(position, yaw)
         self._cmd_pub.publish(cmd)
 
@@ -673,23 +563,42 @@ class WorkspaceCmdVelNode(Node):
         self._last_center_yaw = None
         self._last_center_time = None
 
+    def _pause_path_progress(self):
+        self._last_path_tick_time = None
+
+    def _path_elapsed_sec(self):
+        now = self.get_clock().now()
+        elapsed_sec = 0.0
+        if self._last_path_tick_time is not None:
+            elapsed_sec = max(
+                0.0,
+                (now - self._last_path_tick_time).nanoseconds * 1e-9,
+            )
+        self._last_path_tick_time = now
+        return elapsed_sec
+
+    def _publish_planar_reference(self, target):
+        msg = PointStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self._workspace_frame
+        msg.point.x = float(target[0])
+        msg.point.y = float(target[1])
+        msg.point.z = 0.0
+        self._planar_reference_pub.publish(msg)
+
     def _publish_path(self):
         stamp = self.get_clock().now().to_msg()
         msg = Path()
         msg.header.stamp = stamp
         msg.header.frame_id = self._workspace_frame
-        samples = interpolate_path(
-            self._path_resolution,
-            self._path_yaw_resolution_deg,
-        )
-        for x, y, yaw in samples:
+        samples = interpolate_path(self._path_resolution)
+        for x, y in samples:
             pose = PoseStamped()
             pose.header.stamp = stamp
             pose.header.frame_id = self._workspace_frame
             pose.pose.position.x = x
             pose.pose.position.y = y
-            pose.pose.orientation.z = math.sin(0.5 * yaw)
-            pose.pose.orientation.w = math.cos(0.5 * yaw)
+            pose.pose.orientation.w = 1.0
             msg.poses.append(pose)
         self._path_pub.publish(msg)
 

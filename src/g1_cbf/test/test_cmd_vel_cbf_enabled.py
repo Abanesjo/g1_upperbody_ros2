@@ -136,3 +136,36 @@ def test_cmd_vel_area_barrier_is_translation_invariant():
     original = barrier([2.0, -1.0], [0.5, -0.25])
     shifted = barrier([7.0, -4.0], [5.5, -3.25])
     assert shifted == pytest.approx(original)
+
+
+def test_head_state_is_passed_to_solver():
+    node = CmdVelCBFNode.__new__(CmdVelCBFNode)
+    expected_head_xy = np.array([0.625, -1.125])
+    solver_calls = []
+
+    def safety_filter(*args):
+        solver_calls.append(np.asarray(args[0], dtype=np.float64))
+        return jnp.array([0.2, -0.1])
+
+    node.cbf = SimpleNamespace(safety_filter=safety_filter)
+    node._head_xy_world = lambda: expected_head_xy
+    node._human_endpoint_args = lambda: (
+        np.zeros((MODULE.N_HUMAN_ENDPOINT_SPHERES, 2)),
+        np.zeros(MODULE.N_HUMAN_ENDPOINT_SPHERES),
+        np.zeros(MODULE.N_HUMAN_ENDPOINT_SPHERES, dtype=bool),
+    )
+    node._pelvis_quat = np.array([0.0, 0.0, 0.0, 1.0])
+    node._world_circle_radius = 1.5
+    node._head_collider_radius = 0.3
+    node.get_logger = lambda: SimpleNamespace(
+        error=lambda *_args, **_kwargs: None,
+    )
+
+    safe = node._filter_planar_velocity(
+        np.array([0.2, -0.1]),
+        np.array([0.0, 0.0]),
+    )
+
+    assert safe == pytest.approx([0.2, -0.1])
+    assert len(solver_calls) == 1
+    assert solver_calls[0] == pytest.approx(expected_head_xy)
