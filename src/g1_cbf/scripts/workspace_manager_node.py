@@ -35,6 +35,7 @@ class WorkspaceCaptureState:
 
     x: float = 0.0
     y: float = 0.0
+    yaw: float = 0.0
     enabled: bool = False
     generation: int = 0
     pending: bool = False
@@ -60,7 +61,7 @@ class WorkspaceCaptureState:
         return True
 
     def try_capture(self, pose, age_sec, stale_timeout_sec):
-        """Commit a valid, fresh pelvis XY pose as a new generation."""
+        """Commit a valid, fresh pelvis planar pose as a new generation."""
         if not self.pending:
             return False, 'no workspace capture is pending'
 
@@ -78,12 +79,31 @@ class WorkspaceCaptureState:
                     f'world-to-pelvis TF is stale by {age_sec:.3f}s',
                 )
 
+        try:
+            yaw = yaw_from_quat(pose.quat)
+        except ValueError as exc:
+            return False, str(exc)
+
         self.x = float(pose.position[0])
         self.y = float(pose.position[1])
+        self.yaw = yaw
         self.generation += 1
         self.enabled = True
         self.pending = False
         return True, ''
+
+
+def yaw_from_quat(quat):
+    """Return yaw from an arbitrary finite, non-zero XYZW quaternion."""
+
+    x, y, z, w = (float(value) for value in quat)
+    norm_sq = x * x + y * y + z * z + w * w
+    if norm_sq < 1.0e-12:
+        raise ValueError('world-to-pelvis TF has a zero-norm quaternion')
+
+    sin_yaw = 2.0 * (w * z + x * y) / norm_sq
+    cos_yaw = 1.0 - 2.0 * (y * y + z * z) / norm_sq
+    return math.atan2(sin_yaw, cos_yaw)
 
 
 def workspace_transform(state):
@@ -94,8 +114,8 @@ def workspace_transform(state):
     transform.translation.z = 0.0
     transform.rotation.x = 0.0
     transform.rotation.y = 0.0
-    transform.rotation.z = 0.0
-    transform.rotation.w = 1.0
+    transform.rotation.z = math.sin(0.5 * state.yaw)
+    transform.rotation.w = math.cos(0.5 * state.yaw)
     return transform
 
 
@@ -251,7 +271,8 @@ class WorkspaceManagerNode(Node):
         self._broadcast_transform()
         self.get_logger().info(
             f'Workspace generation {self._capture.generation} captured at '
-            f'world XY=({self._capture.x:.3f}, {self._capture.y:.3f})'
+            f'world XY=({self._capture.x:.3f}, {self._capture.y:.3f}), '
+            f'yaw={self._capture.yaw:.3f} rad'
         )
 
     def _publish_state(self):
