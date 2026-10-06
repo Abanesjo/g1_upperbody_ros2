@@ -9,8 +9,8 @@
   <arg name="viz_rate" default="100.0"/>
   <arg name="wbc" default="false"/>
   <arg name="gravity" default="true"/>
-  <arg name="policy_type" default="mlp"/>
-  <arg name="area_cbf" default="false"/>
+  <arg name="policy_type" default="gru_mlp"/>
+  <arg name="area_cbf" default="true"/>
   <arg name="initial_mode" default="neutral"/>
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">

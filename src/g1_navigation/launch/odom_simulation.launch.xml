@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-    <arg name="use_sim_time" default="false"/>
+    <arg name="use_sim_time" default="true"/>
 
     <node pkg="g1_navigation" exec="base_footprint_tf_publisher_node"
         name="base_footprint_tf_publisher_node" output="screen">
