@@ -1,5 +1,6 @@
 <launch>
-  <arg name="hand_type" default="inspire" description="Hand model: inspire or dex">
+  <arg name="hand_type" default="default" description="Hand model: default (stock rubber hands), inspire or dex">
+    <choice value="default"/>
     <choice value="inspire"/>
     <choice value="dex"/>
   </arg>

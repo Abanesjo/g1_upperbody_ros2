@@ -63,7 +63,7 @@ In one terminal within the container:
 ros2 launch g1_cbf bringup.launch.xml rviz:=true simulator:=true
 ```
 
-The launch files assume Inspire hands. For a robot with Dex3 hands, add `hand_type:=dex` (and set `robot: "g1_dex"` in the simulator's `config.yaml`).
+The launch files assume the stock rubber hands (`hand_type:=default`, with `robot: "g1"` in the simulator's `config.yaml`). For a robot with Inspire or Dex3 hands, add `hand_type:=inspire` or `hand_type:=dex` (and set `robot: "g1_inspire"` or `robot: "g1_dex"` in the simulator's `config.yaml`).
 
 And in another terminal: 
 ```

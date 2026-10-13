@@ -11,9 +11,12 @@ MESH_PREFIX = 'package://g1_description/'
 
 # hand_type -> (left palm link, right palm link, expected mass per hand [kg])
 HANDS = {
+    'default': ('left_rubber_hand', 'right_rubber_hand', 0.170),
     'inspire': ('L_hand_base_link', 'R_hand_base_link', 0.192),
     'dex': ('left_hand_palm_link', 'right_hand_palm_link', 0.697),
 }
+# G1_STOCK_HAND_MASS_KG in g1_vel_mjlab: wrist-yaw link plus stock rubber hand.
+STOCK_WRIST_YAW_MASS = 0.254576
 
 
 def _load(hand_type):
@@ -60,6 +63,17 @@ def test_hand_mass(hand_type):
 
     assert math.isclose(_subtree_mass(robot, left), expected, abs_tol=2e-3)
     assert math.isclose(_subtree_mass(robot, right), expected, abs_tol=2e-3)
+
+
+@pytest.mark.parametrize('side', ['left', 'right'])
+def test_default_wrist_yaw_mass_matches_training(side):
+    robot = _load('default')
+
+    assert math.isclose(
+        _subtree_mass(robot, f'{side}_wrist_yaw_link'),
+        STOCK_WRIST_YAW_MASS,
+        abs_tol=1e-6,
+    )
 
 
 @pytest.mark.parametrize('hand_type', sorted(HANDS))
