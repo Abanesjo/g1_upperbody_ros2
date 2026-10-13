@@ -34,7 +34,7 @@ docker compose up --build
 
 Before proceeding, it's advised to wait until the container finishes compiling the ros packages, which is when you see the message
 
- **"g1_upperbody_ros2  | Summary: 10 packages finished [27.7s]"**
+ **"g1_upperbody_ros2  | Summary: 11 packages finished [27.7s]"**
 
 If not already, grant access to your display for docker applications
 
@@ -54,7 +54,13 @@ This will give you access to the workspace within the container. The container a
 tmux
 ```
 
-and execute the following commands to test the functionality. 
+The ROS nodes communicate over Zenoh (`rmw_zenoh_cpp`) and only find each other through a Zenoh router. Start one in its own terminal within the container and keep it running:
+
+```
+ros2 run rmw_zenoh_cpp rmw_zenohd
+```
+
+The router reads its configuration from `src/RMW_ZENOH_ROUTER_CONFIG.json5`. With the router running, execute the following commands to test the functionality. 
 
 ### Motion from data
 
@@ -64,6 +70,8 @@ ros2 launch g1_cbf bringup.launch.xml rviz:=true simulator:=true
 ```
 
 The launch files assume the stock rubber hands (`hand_type:=default`, with `robot: "g1"` in the simulator's `config.yaml`). For a robot with Inspire or Dex3 hands, add `hand_type:=inspire` or `hand_type:=dex` (and set `robot: "g1_inspire"` or `robot: "g1_dex"` in the simulator's `config.yaml`).
+
+Only the bridge node talks to the simulator or the robot, and it does so with `unitree_sdk2` directly. With `simulator:=true` it expects the simulator on the loopback interface of this machine (`interface: "lo"` and `domain_id: 0` in the simulator's `config.yaml`). For the real robot, leave out `simulator:=true` and pass the network interface that is connected to the robot, for example `network_interface:=enp130s0`.
 
 And in another terminal: 
 ```

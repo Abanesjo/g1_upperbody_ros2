@@ -1,4 +1,4 @@
-FROM ros:humble
+FROM ros:jazzy
 
 ARG TARGETARCH
 
@@ -8,25 +8,24 @@ ENV PIP_ROOT_USER_ACTION=ignore
 
 RUN apt update && apt upgrade -y
 
-RUN apt install ros-humble-desktop -y
+RUN apt install ros-jazzy-desktop -y
 
 # ROS2 and build deps
 RUN apt install -y \
-    ros-humble-rmw-cyclonedds-cpp \
-    ros-humble-rosidl-generator-dds-idl \
-    ros-humble-rosbag2-cpp \
-    ros-humble-joint-state-publisher \
-    ros-humble-joint-state-publisher-gui \
-    ros-humble-pinocchio \
-    ros-humble-joy \
-    ros-humble-foxglove-bridge \
-    ros-humble-rqt-tf-tree \
-    ros-humble-librealsense2* \
-    ros-humble-rtabmap* \
-    ros-humble-xacro \
-    ros-humble-ompl \
-    ros-humble-launch-pytest \
-    ros-humble-diagnostic-updater
+    ros-jazzy-rmw-zenoh-cpp \
+    ros-jazzy-rosbag2-cpp \
+    ros-jazzy-joint-state-publisher \
+    ros-jazzy-joint-state-publisher-gui \
+    ros-jazzy-pinocchio \
+    ros-jazzy-joy \
+    ros-jazzy-foxglove-bridge \
+    ros-jazzy-rqt-tf-tree \
+    ros-jazzy-librealsense2* \
+    ros-jazzy-rtabmap* \
+    ros-jazzy-xacro \
+    ros-jazzy-ompl \
+    ros-jazzy-launch-pytest \
+    ros-jazzy-diagnostic-updater
 
 RUN apt install -y \
     libapr1-dev \
@@ -42,22 +41,25 @@ RUN apt install -y \
     sudo \
     tmux
 
-RUN pip3 install numpy==1.26.4 scipy==1.13.1 opencv-contrib-python==4.7.0.72
-RUN pip3 install osqp "jax[cuda12]" qpax cbfpy
+# numpy and scipy stay pinned for every pip install below. Unpinned, pip picks
+# a JAX that needs NumPy 2, which breaks the apt-installed ROS Python packages.
+RUN printf 'numpy==1.26.4\nscipy==1.13.1\n' > /etc/pip-constraints.txt
+ENV PIP_CONSTRAINT=/etc/pip-constraints.txt
+
+# apt installs scipy 1.11.4, which pip cannot uninstall. The pinned scipy goes
+# into /usr/local, which Python searches first.
+RUN pip3 install --ignore-installed --no-deps scipy==1.13.1
+RUN pip3 install numpy==1.26.4 opencv-contrib-python==4.7.0.72
+RUN pip3 install osqp "jax[cuda12]==0.6.2" qpax cbfpy
 
 COPY dependencies /workspace/dependencies
 
-#CycloneDDS
-RUN cd /workspace/dependencies/cyclonedds && mkdir build && cd build && \
-    cmake .. && make && make install && ldconfig
-
-#unitree_sdk2
+#unitree_sdk2 (installs its own CycloneDDS 0.10.2 libraries and headers into /usr/local)
 RUN cd /workspace/dependencies/unitree_sdk2 && mkdir build && cd build && \
-    cmake .. && make && make install && ldconfig
+    cmake .. && make -j"$(nproc)" && make install && ldconfig
 
 #unitree_sdk2_python
-# RUN CYCLONEDDS_HOME=/usr/local pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
-RUN CYCLONEDDS_HOME=/opt/ros/humble pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
+RUN pip3 install --no-deps /workspace/dependencies/unitree_sdk2_python
 RUN pip3 install --no-deps /workspace/dependencies/dpax
 
 #inspire hand
@@ -83,7 +85,9 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \
 # ENV LD_LIBRARY_PATH=/opt/unitree_robotics/lib:/opt/cyclonedds/lib:/opt/onnxruntime/lib
 
 WORKDIR /workspace/dependencies/Livox-SDK2
-RUN mkdir build && cd build && cmake .. && cmake --build . && make install
+# v1.3.1 uses fixed-width integer types without including <cstdint>, which GCC 13 rejects
+RUN mkdir build && cd build && cmake .. -DCMAKE_CXX_FLAGS="-include cstdint" && \
+    cmake --build . && make install
 
 RUN mkdir -p /workspace/ros2_ws/srcf
 

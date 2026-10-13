@@ -2,53 +2,39 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <ctime>
-#include <future>
+#include <cstdint>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
-#include "common/motor_crc_hg.h"
 #include "g1_bridge/gravity_compensation.hpp"
-#include "nlohmann/json.hpp"
-#include "rclcpp/executors/single_threaded_executor.hpp"
+#include "g1_bridge/low_cmd_builder.hpp"
+#include "g1_bridge/unitree_link.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rosgraph_msgs/msg/clock.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "unitree_api/msg/request.hpp"
-#include "unitree_api/msg/response.hpp"
-#include "unitree_hg/msg/low_cmd.hpp"
-#include "unitree_hg/msg/low_state.hpp"
 
 namespace {
 
-constexpr std::size_t G1_NUM_MOTOR = 29;
-constexpr std::size_t G1_UPPER_BODY_START = 12;
-constexpr int32_t UT_ROBOT_SUCCESS = 0;
-constexpr int32_t UT_ROBOT_TASK_TIMEOUT = -1;
-constexpr int32_t UT_ROBOT_TASK_UNKNOWN_ERROR = -2;
-constexpr int64_t MOTION_SWITCHER_API_ID_CHECK_MODE = 1001;
-constexpr int64_t MOTION_SWITCHER_API_ID_RELEASE_MODE = 1003;
-constexpr int MOTION_RELEASE_MAX_ATTEMPTS = 3;
-constexpr uint8_t MODE_PR = 0;
-constexpr float NEUTRAL_LEG_KP = 100.0F;
-constexpr float NEUTRAL_UPPER_KP = 50.0F;
-constexpr float NEUTRAL_KD = 1.0F;
-constexpr float DAMP_KP = 0.0F;
-constexpr float DAMP_KD = 2.0F;
-constexpr auto MOTION_CALL_TIMEOUT = std::chrono::seconds(5);
-constexpr auto MOTION_DISCOVERY_TIMEOUT = std::chrono::seconds(3);
-constexpr auto MOTION_DISCOVERY_POLL_INTERVAL = std::chrono::milliseconds(50);
-constexpr auto MOTION_RELEASE_RETRY_DELAY = std::chrono::seconds(2);
-constexpr auto GRAVITY_STATE_TIMEOUT = std::chrono::milliseconds(100);
-constexpr char MOTION_SWITCH_REQUEST_TOPIC[] = "/api/motion_switcher/request";
-constexpr char MOTION_SWITCH_RESPONSE_TOPIC[] = "/api/motion_switcher/response";
+using g1_bridge::ControlState;
+using g1_bridge::kNumMotors;
+using g1_bridge::kUpperBodyStart;
 
-const std::array<std::string, G1_NUM_MOTOR> JOINT_NAMES = {
+constexpr int32_t UT_ROBOT_SUCCESS = 0;
+constexpr int MOTION_CHECK_MAX_ATTEMPTS = 3;
+constexpr int MOTION_RELEASE_MAX_ATTEMPTS = 3;
+constexpr auto MOTION_CHECK_RETRY_DELAY = std::chrono::seconds(1);
+constexpr auto MOTION_RELEASE_RETRY_DELAY = std::chrono::seconds(2);
+constexpr char LOOPBACK_INTERFACE[] = "lo";
+
+const std::array<std::string, kNumMotors> JOINT_NAMES = {
     "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
     "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
     "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
@@ -62,12 +48,6 @@ const std::array<std::string, G1_NUM_MOTOR> JOINT_NAMES = {
     "right_wrist_roll_joint", "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
 };
-
-int64_t GetMonotonicNanoseconds() {
-  timespec ts {};
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return static_cast<int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-}
 
 std::string QueryServiceName(const std::string &form, const std::string &name) {
   if (form == "0") {
@@ -91,41 +71,28 @@ std::string QueryServiceName(const std::string &form, const std::string &name) {
   return name;
 }
 
-const char *MotionSwitcherApiName(int64_t api_id) {
-  switch (api_id) {
-    case MOTION_SWITCHER_API_ID_CHECK_MODE:
-      return "CheckMode";
-    case MOTION_SWITCHER_API_ID_RELEASE_MODE:
-      return "ReleaseMode";
-    default:
-      return "Unknown";
-  }
-}
-
-enum class OrchestratorState {
-  kNeutral,
-  kControl,
-  kDamp,
-};
-
-struct PidGains {
-  double kp{};
-  double kd{};
-};
-
 }  // namespace
 
+// Bridges the ROS graph to the robot. The robot side is unitree_sdk2 (DDS on
+// one network interface), the ROS side is whatever RMW the graph uses. The SDK
+// keeps delivering robot data on its own threads after ROS has shut down, so
+// the SDK callbacks drop it from then on.
 class G1BridgeNode : public rclcpp::Node {
  public:
   G1BridgeNode() : Node("g1_bridge_node") {
     const bool simulator = this->declare_parameter<bool>("simulator", false);
-    const bool mujoco = this->declare_parameter<bool>("mujoco", false);
+    this->declare_parameter<bool>("mujoco", false);
     wbc_ = this->declare_parameter<bool>("wbc", true);
     const bool gravity =
         this->declare_parameter<bool>("gravity", true);
     const auto urdf_path =
         this->declare_parameter<std::string>("urdf_path", "");
-    gravity_enabled_ = !wbc_ && gravity;
+    const auto network_interface =
+        this->declare_parameter<std::string>("network_interface",
+                                             LOOPBACK_INTERFACE);
+    const auto domain_id =
+        static_cast<int>(this->declare_parameter<int>("domain_id", 0));
+    gravity_enabled_ = g1_bridge::GravityFeedforwardEnabled(wbc_, gravity);
 
     if (gravity_enabled_) {
       gravity_compensation_ =
@@ -133,7 +100,7 @@ class G1BridgeNode : public rclcpp::Node {
               urdf_path,
               std::vector<std::string>(JOINT_NAMES.begin(),
                                        JOINT_NAMES.end()));
-      measured_positions_.resize(G1_NUM_MOTOR);
+      measured_positions_.resize(kNumMotors);
       RCLCPP_INFO(this->get_logger(),
                   "Upper-body gravity compensation enabled in neutral and "
                   "control modes");
@@ -146,10 +113,24 @@ class G1BridgeNode : public rclcpp::Node {
                   "compensation");
     }
 
+    RCLCPP_INFO(this->get_logger(),
+                "Connecting to the robot with unitree_sdk2 on network "
+                "interface '%s', DDS domain %d",
+                network_interface.c_str(), domain_id);
+    link_ = std::make_unique<g1_bridge::UnitreeLink>(domain_id,
+                                                     network_interface);
+
     if (simulator) {
       RCLCPP_WARN(this->get_logger(),
                   "Simulator mode enabled - skipping Unitree G1 motion "
                   "service deactivation");
+      if (network_interface != LOOPBACK_INTERFACE) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Simulator mode on network interface '%s': lowcmd also "
+                    "reaches a real robot on that network, whose motion "
+                    "service is still active",
+                    network_interface.c_str());
+      }
     } else if (!DeactivateMotionService()) {
       throw std::runtime_error(
           "failed to deactivate Unitree G1 motion service");
@@ -185,15 +166,7 @@ class G1BridgeNode : public rclcpp::Node {
                                                               sensor_qos);
     imu_pub_ =
         this->create_publisher<sensor_msgs::msg::Imu>("/imu", sensor_qos);
-    lowcmd_pub_ =
-        this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd",
-                                                        sensor_qos);
 
-    lowstate_sub_ = this->create_subscription<unitree_hg::msg::LowState>(
-        "/lowstate", sensor_qos,
-        [this](const unitree_hg::msg::LowState::SharedPtr msg) {
-          LowStateCallback(msg);
-        });
     safe_cmd_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
         "/joint_commands_safe", sensor_qos,
         [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
@@ -207,6 +180,31 @@ class G1BridgeNode : public rclcpp::Node {
               OrchestratorStateCallback(msg);
             });
 
+    // The flag is shared, so the callback stays valid after this node is
+    // gone. Set before the RMW shuts down, unlike rclcpp::ok().
+    this->get_node_base_interface()->get_context()->add_pre_shutdown_callback(
+        [shutting_down = ros_shutting_down_] { shutting_down->store(true); });
+
+    link_->SubscribeRobotState(
+        [this](const g1_bridge::RobotState &state) {
+          RobotStateCallback(state);
+        });
+    if (simulator) {
+      // unitree_mujoco publishes simulation time and the pelvis pose on DDS
+      // only, so the ROS graph gets them through this node.
+      clock_pub_ = this->create_publisher<rosgraph_msgs::msg::Clock>(
+          "/clock", rclcpp::ClockQoS());
+      pelvis_pose_pub_ =
+          this->create_publisher<geometry_msgs::msg::PoseStamped>(
+              "/pose/pelvis", sensor_qos);
+      link_->SubscribeClock(
+          [this](const g1_bridge::TimeStamp &stamp) { ClockCallback(stamp); });
+      link_->SubscribePelvisPose(
+          [this](const g1_bridge::StampedPose &pose) {
+            PelvisPoseCallback(pose);
+          });
+    }
+
     republish_timer_ = rclcpp::create_timer(
         this, this->get_clock(),
         std::chrono::milliseconds(2), [this] { PublishLowCmd(); });
@@ -215,145 +213,31 @@ class G1BridgeNode : public rclcpp::Node {
   }
 
  private:
-  bool WaitForMotionSwitcherDiscovery(
-      int64_t api_id,
-      const rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr
-          &request_pub,
-      const rclcpp::Subscription<unitree_api::msg::Response>::SharedPtr
-          &response_sub,
-      rclcpp::executors::SingleThreadedExecutor &executor) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + MOTION_DISCOVERY_TIMEOUT;
-
-    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
-      executor.spin_some(std::chrono::milliseconds(0));
-      if (request_pub->get_subscription_count() > 0 &&
-          response_sub->get_publisher_count() > 0) {
+  // The first call can race DDS discovery of the service, so it is retried.
+  bool CheckMotionMode(std::string &form, std::string &name,
+                       const char *stage) {
+    int32_t ret = UT_ROBOT_SUCCESS;
+    for (int attempt = 1; attempt <= MOTION_CHECK_MAX_ATTEMPTS; ++attempt) {
+      form.clear();
+      name.clear();
+      ret = link_->CheckMotionMode(form, name);
+      if (ret == UT_ROBOT_SUCCESS) {
         return true;
       }
-      std::this_thread::sleep_for(MOTION_DISCOVERY_POLL_INTERVAL);
+      if (attempt < MOTION_CHECK_MAX_ATTEMPTS) {
+        RCLCPP_WARN(this->get_logger(),
+                    "CheckMode attempt %d/%d failed with error code %d; "
+                    "retrying",
+                    attempt, MOTION_CHECK_MAX_ATTEMPTS, ret);
+        std::this_thread::sleep_for(MOTION_CHECK_RETRY_DELAY);
+      }
     }
 
     RCLCPP_FATAL(this->get_logger(),
-                 "%s failed: timed out waiting for Unitree motion switcher "
-                 "DDS endpoints on %s and %s (request subscribers: %zu, "
-                 "response publishers: %zu)",
-                 MotionSwitcherApiName(api_id), MOTION_SWITCH_REQUEST_TOPIC,
-                 MOTION_SWITCH_RESPONSE_TOPIC,
-                 request_pub->get_subscription_count(),
-                 response_sub->get_publisher_count());
+                 "CheckMode failed %s: no usable answer from the Unitree "
+                 "motion switcher. Error code: %d",
+                 stage, ret);
     return false;
-  }
-
-  int32_t CallMotionSwitcher(int64_t api_id, nlohmann::json *response_json) {
-    using Request = unitree_api::msg::Request;
-    using Response = unitree_api::msg::Response;
-
-    if (!motion_switch_request_pub_) {
-      motion_switch_request_pub_ =
-          this->create_publisher<Request>(MOTION_SWITCH_REQUEST_TOPIC,
-                                          rclcpp::QoS(1));
-    }
-
-    Request req;
-    req.header.identity.id = GetMonotonicNanoseconds();
-    req.header.identity.api_id = api_id;
-    req.parameter = "{}";
-
-    const auto identity_id = req.header.identity.id;
-    auto response_promise = std::make_shared<std::promise<Response>>();
-    auto response_set = std::make_shared<std::atomic_bool>(false);
-    auto response_future = response_promise->get_future();
-
-    auto response_sub = this->create_subscription<Response>(
-        MOTION_SWITCH_RESPONSE_TOPIC, rclcpp::QoS(1),
-        [identity_id, response_promise, response_set](
-            const Response::SharedPtr msg) {
-          if (msg->header.identity.id != identity_id) {
-            return;
-          }
-          if (!response_set->exchange(true)) {
-            response_promise->set_value(*msg);
-          }
-        });
-
-    rclcpp::executors::SingleThreadedExecutor executor;
-    executor.add_node(this->get_node_base_interface());
-
-    if (!WaitForMotionSwitcherDiscovery(api_id, motion_switch_request_pub_,
-                                        response_sub, executor)) {
-      executor.remove_node(this->get_node_base_interface());
-      return UT_ROBOT_TASK_TIMEOUT;
-    }
-
-    motion_switch_request_pub_->publish(req);
-
-    const auto status =
-        executor.spin_until_future_complete(response_future,
-                                            MOTION_CALL_TIMEOUT);
-    executor.remove_node(this->get_node_base_interface());
-
-    if (status == rclcpp::FutureReturnCode::TIMEOUT) {
-      RCLCPP_FATAL(this->get_logger(),
-                   "%s failed: no response from Unitree motion switcher within "
-                   "%ld seconds",
-                   MotionSwitcherApiName(api_id), MOTION_CALL_TIMEOUT.count());
-      return UT_ROBOT_TASK_TIMEOUT;
-    }
-    if (status != rclcpp::FutureReturnCode::SUCCESS) {
-      RCLCPP_FATAL(this->get_logger(),
-                   "%s failed: executor returned before a motion switcher "
-                   "response was received",
-                   MotionSwitcherApiName(api_id));
-      return UT_ROBOT_TASK_UNKNOWN_ERROR;
-    }
-
-    const auto response = response_future.get();
-    if (response.header.status.code != UT_ROBOT_SUCCESS) {
-      RCLCPP_FATAL(this->get_logger(),
-                   "%s failed: Unitree motion switcher returned status code %d",
-                   MotionSwitcherApiName(api_id),
-                   response.header.status.code);
-      return response.header.status.code;
-    }
-
-    if (response_json != nullptr) {
-      try {
-        *response_json = nlohmann::json::parse(response.data);
-      } catch (const nlohmann::json::exception &e) {
-        RCLCPP_ERROR(this->get_logger(),
-                     "Failed to parse motion switch response JSON: %s",
-                     e.what());
-        return UT_ROBOT_TASK_UNKNOWN_ERROR;
-      }
-    }
-
-    return UT_ROBOT_SUCCESS;
-  }
-
-  int32_t CheckMotionMode(std::string &form, std::string &name) {
-    nlohmann::json response;
-    const auto ret =
-        CallMotionSwitcher(MOTION_SWITCHER_API_ID_CHECK_MODE, &response);
-    if (ret != UT_ROBOT_SUCCESS) {
-      return ret;
-    }
-
-    try {
-      response.at("form").get_to(form);
-      response.at("name").get_to(name);
-    } catch (const nlohmann::json::exception &e) {
-      RCLCPP_ERROR(this->get_logger(),
-                   "Motion switch CheckMode response is missing form/name: %s",
-                   e.what());
-      return UT_ROBOT_TASK_UNKNOWN_ERROR;
-    }
-
-    return UT_ROBOT_SUCCESS;
-  }
-
-  int32_t ReleaseMotionMode() {
-    return CallMotionSwitcher(MOTION_SWITCHER_API_ID_RELEASE_MODE, nullptr);
   }
 
   bool DeactivateMotionService() {
@@ -362,11 +246,7 @@ class G1BridgeNode : public rclcpp::Node {
 
     std::string form;
     std::string name;
-    auto ret = CheckMotionMode(form, name);
-    if (ret != UT_ROBOT_SUCCESS) {
-      RCLCPP_FATAL(this->get_logger(),
-                   "CheckMode failed before lowcmd startup. Error code: %d",
-                   ret);
+    if (!CheckMotionMode(form, name, "before lowcmd startup")) {
       return false;
     }
 
@@ -379,7 +259,7 @@ class G1BridgeNode : public rclcpp::Node {
                   "%d/%d",
                   service_name.c_str(), attempt, MOTION_RELEASE_MAX_ATTEMPTS);
 
-      ret = ReleaseMotionMode();
+      const auto ret = link_->ReleaseMotionMode();
       if (ret != UT_ROBOT_SUCCESS) {
         RCLCPP_FATAL(this->get_logger(),
                      "ReleaseMode failed before lowcmd startup. Error code: %d",
@@ -389,11 +269,7 @@ class G1BridgeNode : public rclcpp::Node {
 
       std::this_thread::sleep_for(MOTION_RELEASE_RETRY_DELAY);
 
-      ret = CheckMotionMode(form, name);
-      if (ret != UT_ROBOT_SUCCESS) {
-        RCLCPP_FATAL(this->get_logger(),
-                     "CheckMode failed after ReleaseMode. Error code: %d",
-                     ret);
+      if (!CheckMotionMode(form, name, "after ReleaseMode")) {
         return false;
       }
     }
@@ -412,145 +288,138 @@ class G1BridgeNode : public rclcpp::Node {
     return true;
   }
 
-  void ApplyGravityFeedforward(unitree_hg::msg::LowCmd &cmd) {
-    if (!gravity_enabled_) {
+  // Runs on an SDK thread.
+  void RobotStateCallback(const g1_bridge::RobotState &state) {
+    if (ros_shutting_down_->load()) {
       return;
     }
+    try {
+      const auto stamp = this->get_clock()->now();
 
-    const bool gravity_state_fresh =
-        std::chrono::steady_clock::now() - last_lowstate_time_ <=
-        GRAVITY_STATE_TIMEOUT;
-    if (!gravity_state_fresh) {
-      RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 2000,
-          "LowState is stale; falling back to classical PD without gravity "
-          "feedforward");
-      return;
-    }
+      sensor_msgs::msg::JointState joint_state;
+      joint_state.header.stamp = stamp;
+      joint_state.name.reserve(kNumMotors);
+      joint_state.position.reserve(kNumMotors);
+      joint_state.velocity.reserve(kNumMotors);
+      joint_state.effort.reserve(kNumMotors);
 
-    for (std::size_t i = G1_UPPER_BODY_START; i < JOINT_NAMES.size(); ++i) {
-      cmd.motor_cmd[i].tau += gravity_torques_[i];
-    }
-  }
-
-  void BuildNeutralLowCmd(unitree_hg::msg::LowCmd &cmd) {
-    cmd.mode_pr = MODE_PR;
-    cmd.mode_machine = mode_machine_;
-    for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      auto &motor_cmd = cmd.motor_cmd[i];
-      motor_cmd.mode = 1;
-      motor_cmd.q = target_positions_[i];
-      motor_cmd.dq = 0.0F;
-      motor_cmd.tau = 0.0F;
-      motor_cmd.kp = (i < 13) ? NEUTRAL_LEG_KP : NEUTRAL_UPPER_KP;
-      motor_cmd.kd = NEUTRAL_KD;
-    }
-    ApplyGravityFeedforward(cmd);
-  }
-
-  void BuildDampLowCmd(unitree_hg::msg::LowCmd &cmd) {
-    cmd.mode_pr = MODE_PR;
-    cmd.mode_machine = mode_machine_;
-    for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      auto &motor_cmd = cmd.motor_cmd[i];
-      motor_cmd.mode = 1;
-      motor_cmd.q = target_positions_[i];
-      motor_cmd.dq = 0.0F;
-      motor_cmd.tau = 0.0F;
-      motor_cmd.kp = DAMP_KP;
-      motor_cmd.kd = DAMP_KD;
-    }
-  }
-
-  void BuildControlLowCmd(unitree_hg::msg::LowCmd &cmd) {
-    cmd.mode_pr = mode_pr_;
-    cmd.mode_machine = mode_machine_;
-    for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      auto &motor_cmd = cmd.motor_cmd[i];
-      motor_cmd.mode = 1;
-      motor_cmd.q = target_positions_[i];
-      motor_cmd.dq = target_velocities_[i];
-      motor_cmd.tau = target_efforts_[i];
-      motor_cmd.kp = static_cast<float>(gains_[i].kp);
-      motor_cmd.kd = static_cast<float>(gains_[i].kd);
-    }
-    ApplyGravityFeedforward(cmd);
-  }
-
-  void LowStateCallback(const unitree_hg::msg::LowState::SharedPtr msg) {
-    mode_machine_ = msg->mode_machine;
-    mode_pr_ = msg->mode_pr;
-    has_state_ = true;
-    last_lowstate_time_ = std::chrono::steady_clock::now();
-
-    const auto stamp = this->get_clock()->now();
-
-    sensor_msgs::msg::JointState joint_state;
-    joint_state.header.stamp = stamp;
-    joint_state.name.reserve(G1_NUM_MOTOR);
-    joint_state.position.reserve(G1_NUM_MOTOR);
-    joint_state.velocity.reserve(G1_NUM_MOTOR);
-    joint_state.effort.reserve(G1_NUM_MOTOR);
-
-    for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
-      const auto &motor = msg->motor_state[i];
-      joint_state.name.push_back(JOINT_NAMES[i]);
-      joint_state.position.push_back(static_cast<double>(motor.q));
-      joint_state.velocity.push_back(static_cast<double>(motor.dq));
-      joint_state.effort.push_back(static_cast<double>(motor.tau_est));
-      if (gravity_enabled_) {
-        measured_positions_[i] = static_cast<double>(motor.q);
-      }
-    }
-
-    if (gravity_enabled_) {
-      try {
-        const std::array<double, 4> base_orientation = {
-            static_cast<double>(msg->imu_state.quaternion[0]),
-            static_cast<double>(msg->imu_state.quaternion[1]),
-            static_cast<double>(msg->imu_state.quaternion[2]),
-            static_cast<double>(msg->imu_state.quaternion[3]),
-        };
-        const auto &gravity =
-            gravity_compensation_->Compute(base_orientation,
-                                           measured_positions_);
-        gravity_torques_.fill(0.0F);
-        for (std::size_t i = G1_UPPER_BODY_START; i < gravity.size(); ++i) {
-          gravity_torques_[i] = static_cast<float>(gravity[i]);
+      for (std::size_t i = 0; i < JOINT_NAMES.size(); ++i) {
+        joint_state.name.push_back(JOINT_NAMES[i]);
+        joint_state.position.push_back(static_cast<double>(state.q[i]));
+        joint_state.velocity.push_back(static_cast<double>(state.dq[i]));
+        joint_state.effort.push_back(static_cast<double>(state.tau_est[i]));
+        if (gravity_enabled_) {
+          measured_positions_[i] = static_cast<double>(state.q[i]);
         }
-      } catch (const std::exception &e) {
-        gravity_torques_.fill(0.0F);
-        RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 2000,
-            "Failed to compute gravity compensation; using zero "
-            "feedforward: %s",
-            e.what());
       }
-    }
-    joint_states_pub_->publish(joint_state);
 
-    sensor_msgs::msg::Imu imu;
-    imu.header.stamp = stamp;
-    imu.header.frame_id = "torso_link";
-    imu.orientation.w = msg->imu_state.quaternion[0];
-    imu.orientation.x = msg->imu_state.quaternion[1];
-    imu.orientation.y = msg->imu_state.quaternion[2];
-    imu.orientation.z = msg->imu_state.quaternion[3];
-    imu.angular_velocity.x = msg->imu_state.gyroscope[0];
-    imu.angular_velocity.y = msg->imu_state.gyroscope[1];
-    imu.angular_velocity.z = msg->imu_state.gyroscope[2];
-    imu.linear_acceleration.x = msg->imu_state.accelerometer[0];
-    imu.linear_acceleration.y = msg->imu_state.accelerometer[1];
-    imu.linear_acceleration.z = msg->imu_state.accelerometer[2];
-    imu_pub_->publish(imu);
+      g1_bridge::JointArray gravity_torques{};
+      if (gravity_enabled_) {
+        try {
+          const std::array<double, 4> base_orientation = {
+              static_cast<double>(state.quaternion_wxyz[0]),
+              static_cast<double>(state.quaternion_wxyz[1]),
+              static_cast<double>(state.quaternion_wxyz[2]),
+              static_cast<double>(state.quaternion_wxyz[3]),
+          };
+          const auto &gravity =
+              gravity_compensation_->Compute(base_orientation,
+                                             measured_positions_);
+          for (std::size_t i = kUpperBodyStart; i < gravity.size(); ++i) {
+            gravity_torques[i] = static_cast<float>(gravity[i]);
+          }
+        } catch (const std::exception &e) {
+          gravity_torques.fill(0.0F);
+          RCLCPP_WARN_THROTTLE(
+              this->get_logger(), *this->get_clock(), 2000,
+              "Failed to compute gravity compensation; using zero "
+              "feedforward: %s",
+              e.what());
+        }
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(robot_state_mutex_);
+        mode_machine_ = state.mode_machine;
+        mode_pr_ = state.mode_pr;
+        gravity_torques_ = gravity_torques;
+        last_lowstate_time_ = std::chrono::steady_clock::now();
+        has_state_ = true;
+      }
+      joint_states_pub_->publish(joint_state);
+
+      sensor_msgs::msg::Imu imu;
+      imu.header.stamp = stamp;
+      imu.header.frame_id = "torso_link";
+      imu.orientation.w = state.quaternion_wxyz[0];
+      imu.orientation.x = state.quaternion_wxyz[1];
+      imu.orientation.y = state.quaternion_wxyz[2];
+      imu.orientation.z = state.quaternion_wxyz[3];
+      imu.angular_velocity.x = state.gyroscope[0];
+      imu.angular_velocity.y = state.gyroscope[1];
+      imu.angular_velocity.z = state.gyroscope[2];
+      imu.linear_acceleration.x = state.accelerometer[0];
+      imu.linear_acceleration.y = state.accelerometer[1];
+      imu.linear_acceleration.z = state.accelerometer[2];
+      imu_pub_->publish(imu);
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                            "Failed to forward lowstate: %s", e.what());
+    }
+  }
+
+  // Runs on an SDK thread.
+  void ClockCallback(const g1_bridge::TimeStamp &stamp) {
+    if (ros_shutting_down_->load()) {
+      return;
+    }
+    try {
+      rosgraph_msgs::msg::Clock msg;
+      msg.clock.sec = stamp.sec;
+      msg.clock.nanosec = stamp.nanosec;
+      clock_pub_->publish(msg);
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR_THROTTLE(this->get_logger(), steady_clock_, 2000,
+                            "Failed to forward the simulator clock: %s",
+                            e.what());
+    }
+  }
+
+  // Runs on an SDK thread.
+  void PelvisPoseCallback(const g1_bridge::StampedPose &pose) {
+    if (ros_shutting_down_->load()) {
+      return;
+    }
+    try {
+      geometry_msgs::msg::PoseStamped msg;
+      msg.header.stamp.sec = pose.stamp.sec;
+      msg.header.stamp.nanosec = pose.stamp.nanosec;
+      msg.header.frame_id = pose.frame_id;
+      msg.pose.position.x = pose.position[0];
+      msg.pose.position.y = pose.position[1];
+      msg.pose.position.z = pose.position[2];
+      msg.pose.orientation.x = pose.orientation_xyzw[0];
+      msg.pose.orientation.y = pose.orientation_xyzw[1];
+      msg.pose.orientation.z = pose.orientation_xyzw[2];
+      msg.pose.orientation.w = pose.orientation_xyzw[3];
+      pelvis_pose_pub_->publish(msg);
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR_THROTTLE(this->get_logger(), steady_clock_, 2000,
+                            "Failed to forward the simulator pelvis pose: %s",
+                            e.what());
+    }
   }
 
   void JointCommandSafeCallback(
       const sensor_msgs::msg::JointState::SharedPtr msg) {
-    if (!has_state_) {
-      RCLCPP_WARN(this->get_logger(),
-                  "Received /joint_commands_safe before any /lowstate - ignoring");
-      return;
+    {
+      std::lock_guard<std::mutex> lock(robot_state_mutex_);
+      if (!has_state_) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Received /joint_commands_safe before any lowstate - "
+                    "ignoring");
+        return;
+      }
     }
 
     target_velocities_.fill(0.0F);
@@ -583,13 +452,13 @@ class G1BridgeNode : public rclcpp::Node {
   }
 
   void OrchestratorStateCallback(const std_msgs::msg::String::SharedPtr msg) {
-    OrchestratorState new_state = current_state_;
+    ControlState new_state = current_state_;
     if (msg->data == "neutral") {
-      new_state = OrchestratorState::kNeutral;
+      new_state = ControlState::kNeutral;
     } else if (msg->data == "control") {
-      new_state = OrchestratorState::kControl;
+      new_state = ControlState::kControl;
     } else if (msg->data == "damp") {
-      new_state = OrchestratorState::kDamp;
+      new_state = ControlState::kDamp;
     } else {
       RCLCPP_WARN(this->get_logger(), "Unknown orchestrator state: %s",
                   msg->data.c_str());
@@ -603,51 +472,83 @@ class G1BridgeNode : public rclcpp::Node {
   }
 
   void PublishLowCmd() {
-    if (!has_state_ || !has_latest_safe_cmd_) {
+    if (!has_latest_safe_cmd_) {
       return;
     }
 
-    unitree_hg::msg::LowCmd cmd;
-    if (current_state_ == OrchestratorState::kDamp) {
-      BuildDampLowCmd(cmd);
-    } else if (current_state_ == OrchestratorState::kControl &&
-               has_latest_safe_cmd_) {
-      BuildControlLowCmd(cmd);
-    } else {
-      BuildNeutralLowCmd(cmd);
+    g1_bridge::LowCommandInputs inputs;
+    {
+      std::lock_guard<std::mutex> lock(robot_state_mutex_);
+      if (!has_state_) {
+        return;
+      }
+      inputs.mode_pr = mode_pr_;
+      inputs.mode_machine = mode_machine_;
+      inputs.gravity_torques = gravity_torques_;
+      inputs.lowstate_age =
+          std::chrono::steady_clock::now() - last_lowstate_time_;
+    }
+    inputs.state = current_state_;
+    inputs.target_positions = target_positions_;
+    inputs.target_velocities = target_velocities_;
+    inputs.target_efforts = target_efforts_;
+    inputs.gravity_enabled = gravity_enabled_;
+
+    if (gravity_enabled_ && current_state_ != ControlState::kDamp &&
+        !g1_bridge::GravityFeedforwardApplies(inputs)) {
+      RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 2000,
+          "LowState is stale; falling back to classical PD without gravity "
+          "feedforward");
     }
 
-    get_crc(cmd);
-    lowcmd_pub_->publish(cmd);
+    if (!link_->WriteLowCommand(
+            g1_bridge::BuildLowCommand(inputs, gains_))) {
+      RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                            "Failed to write lowcmd to the robot");
+    }
   }
 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
-  rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowcmd_pub_;
-  rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowstate_sub_;
+  rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr
+      pelvis_pose_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr safe_cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr
       orchestrator_state_sub_;
   rclcpp::TimerBase::SharedPtr republish_timer_;
-  rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr
-      motion_switch_request_pub_;
+  std::shared_ptr<std::atomic_bool> ros_shutting_down_{
+      std::make_shared<std::atomic_bool>(false)};
+  // The simulator clock drives this node's own clock when use_sim_time is
+  // set, so failures to forward it are throttled on a clock that keeps going.
+  rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
 
   std::unordered_map<std::string, std::size_t> joint_map_;
-  std::array<PidGains, G1_NUM_MOTOR> gains_{};
-  std::array<float, G1_NUM_MOTOR> target_positions_{};
-  std::array<float, G1_NUM_MOTOR> target_velocities_{};
-  std::array<float, G1_NUM_MOTOR> target_efforts_{};
-  std::array<float, G1_NUM_MOTOR> gravity_torques_{};
-  std::vector<double> measured_positions_;
-  std::unique_ptr<g1_bridge::GravityCompensation> gravity_compensation_;
-  std::chrono::steady_clock::time_point last_lowstate_time_{};
-  uint8_t mode_machine_{};
-  uint8_t mode_pr_{};
-  OrchestratorState current_state_{OrchestratorState::kNeutral};
-  bool has_state_{false};
+  std::array<g1_bridge::PidGains, kNumMotors> gains_{};
+  g1_bridge::JointArray target_positions_{};
+  g1_bridge::JointArray target_velocities_{};
+  g1_bridge::JointArray target_efforts_{};
+  ControlState current_state_{ControlState::kNeutral};
   bool has_latest_safe_cmd_{false};
   bool wbc_{true};
   bool gravity_enabled_{false};
+
+  // Used by the SDK lowstate thread only.
+  std::vector<double> measured_positions_;
+  std::unique_ptr<g1_bridge::GravityCompensation> gravity_compensation_;
+
+  // Written by the SDK lowstate thread, read by the ROS callbacks.
+  std::mutex robot_state_mutex_;
+  g1_bridge::JointArray gravity_torques_{};
+  std::chrono::steady_clock::time_point last_lowstate_time_{};
+  uint8_t mode_machine_{};
+  uint8_t mode_pr_{};
+  bool has_state_{false};
+
+  // Declared last so that it is destroyed first: its destructor stops the SDK
+  // threads that call back into the members above.
+  std::unique_ptr<g1_bridge::UnitreeLink> link_;
 };
 
 int main(int argc, char **argv) {

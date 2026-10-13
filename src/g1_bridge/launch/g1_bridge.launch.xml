@@ -7,6 +7,7 @@
   <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_$(var hand_type).urdf"/>
   <arg name="rviz" default="true"/>
   <arg name="simulator" default="false"/>
+  <arg name="network_interface" default="lo" description="Network interface unitree_sdk2 uses to reach the robot, or lo for a unitree_mujoco on this machine"/>
   <arg name="mujoco" default="false"/>
   <arg name="use_sim_time" default="false"/>
 
@@ -23,6 +24,7 @@
     <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
       <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
       <param name="simulator" value="false"/>
+      <param name="network_interface" value="$(var network_interface)"/>
       <param name="mujoco" value="$(var mujoco)"/>
       <param name="use_sim_time" value="$(var use_sim_time)"/>
     </node>
@@ -32,6 +34,7 @@
       <node pkg="g1_bridge" exec="g1_bridge_node" name="g1_bridge_node" output="screen">
         <param from="$(find-pkg-share g1_bridge)/config/gains.yaml"/>
         <param name="simulator" value="true"/>
+        <param name="network_interface" value="$(var network_interface)"/>
         <param name="mujoco" value="true"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
       </node>

@@ -1,0 +1,19 @@
+// rosgraph_msgs/msg/Clock.idl  (ROS2 standard)
+//
+// Reference IDL for the hand-authored Clock_.hpp in this directory.
+// The C++ header (Clock_.hpp) is NOT generated from this file because the
+// idlc C++ generator plugin (libcycloneddsidlcxx.so) was unavailable in the
+// toolchain; it is maintained by hand following the generated-header pattern.
+// Kept for documentation of intent and field naming.
+
+#include "builtin_interfaces/msg/Time.idl"
+
+module rosgraph_msgs {
+  module msg {
+    module dds_ {
+      struct Clock_ {
+        ::builtin_interfaces::msg::dds_::Time_ clock;
+      };
+    };
+  };
+};

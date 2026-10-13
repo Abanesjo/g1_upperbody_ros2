@@ -2,15 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This is a ROS 2 Humble workspace for Unitree G1 upper-body control. Active packages live under `src/`; vendored code and binary dependencies live under `dependencies/`.
+This is a ROS 2 Jazzy workspace for Unitree G1 upper-body control. Active packages live under `src/`; vendored code and binary dependencies live under `dependencies/`.
 
 - `src/g1_cbf`: Python CBF safety filter nodes, config, and launch files.
-- `src/g1_bridge`: Python bridge node, gains config, and RViz setup.
+- `src/g1_bridge`: C++ bridge node between the ROS graph and the robot (through `unitree_sdk2`), orchestrator, gains config, and RViz setup.
 - `src/g1_rl_deploy`: C++ ONNX deploy node plus helper scripts, model files, motions, and launch config.
 - `src/g1_human`: human-motion simulator scripts, config, launch files, and CSV motions.
 - `src/g1_description`: URDF and mesh assets.
-- `src/interfaces`: ROS message packages for Unitree and CBF messages.
-- `src/unitree_ros2_examples`: C++ example clients and control demos.
+- `src/interfaces`: the `g1_cbf_msg` ROS message package.
 
 Avoid editing `dependencies/` unless the change is explicitly for vendored code.
 
@@ -22,7 +21,7 @@ Avoid editing `dependencies/` unless the change is explicitly for vendored code.
 - `colcon test --event-handlers console_direct+`: runs available ROS tests and ament lint checks.
 - `ros2 launch g1_cbf bringup.launch.xml`: launches the CBF bringup flow. Other launch files follow the same pattern, for example `ros2 launch g1_bridge g1_bridge.launch.xml`.
 
-The container entrypoint also sets CycloneDDS defaults through `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` and `CYCLONEDDS_URI`.
+The container entrypoint also sets the Zenoh defaults through `RMW_IMPLEMENTATION=rmw_zenoh_cpp` and `ZENOH_ROUTER_CONFIG_URI`. Nodes only find each other through a Zenoh router, so start `ros2 run rmw_zenoh_cpp rmw_zenohd` first. Only `g1_bridge_node` talks to the robot or the simulator, with `unitree_sdk2` on the interface given by the `network_interface` launch argument (default `lo`).
 
 ## Coding Style & Naming Conventions
 
