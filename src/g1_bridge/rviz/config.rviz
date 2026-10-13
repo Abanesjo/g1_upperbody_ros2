@@ -16,9 +16,8 @@ Panels:
         - /Collision Distances1/Namespaces1
         - /Obstacle Markers1
         - /Odometry1/Shape1
-        - /TF1/Frames1
       Splitter Ratio: 0.5
-    Tree Height: 1240
+    Tree Height: 1080
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -75,137 +74,7 @@ Visualization Manager:
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
-        L_hand_base_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_index_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_index_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_middle_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_middle_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_pinky_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_pinky_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_ring_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_ring_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_thumb_distal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_thumb_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_thumb_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        L_thumb_proximal_base:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         Link Tree Style: Links in Alphabetic Order
-        R_hand_base_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_index_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_index_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_middle_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_middle_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_pinky_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_pinky_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_ring_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_ring_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_thumb_distal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_thumb_intermediate:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_thumb_proximal:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        R_thumb_proximal_base:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         d435_link:
           Alpha: 1
           Show Axes: false
@@ -234,6 +103,46 @@ Visualization Manager:
           Show Trail: false
           Value: true
         left_elbow_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_index_0_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_index_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_middle_0_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_middle_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_palm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_thumb_0_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_thumb_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_thumb_2_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -318,6 +227,46 @@ Visualization Manager:
           Show Trail: false
           Value: true
         right_elbow_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_index_0_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_index_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_middle_0_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_middle_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_palm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_thumb_0_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_thumb_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_thumb_2_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -637,297 +586,6 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /odom
       Value: true
-    - Class: rviz_default_plugins/TF
-      Enabled: true
-      Frame Timeout: 15
-      Frames:
-        All Enabled: false
-        L_hand_base_link:
-          Value: false
-        R_hand_base_link:
-          Value: false
-        base_footprint:
-          Value: true
-        d435_link:
-          Value: false
-        ghost/L_hand_base_link:
-          Value: false
-        ghost/R_hand_base_link:
-          Value: false
-        ghost/base_footprint:
-          Value: false
-        ghost/d435_link:
-          Value: false
-        ghost/head_link:
-          Value: false
-        ghost/imu_in_pelvis:
-          Value: false
-        ghost/imu_in_torso:
-          Value: false
-        ghost/left_ankle_pitch_link:
-          Value: false
-        ghost/left_ankle_roll_link:
-          Value: false
-        ghost/left_elbow_link:
-          Value: false
-        ghost/left_hip_pitch_link:
-          Value: false
-        ghost/left_hip_roll_link:
-          Value: false
-        ghost/left_hip_yaw_link:
-          Value: false
-        ghost/left_knee_link:
-          Value: false
-        ghost/left_shoulder_pitch_link:
-          Value: false
-        ghost/left_shoulder_roll_link:
-          Value: false
-        ghost/left_shoulder_yaw_link:
-          Value: false
-        ghost/left_wrist_pitch_link:
-          Value: false
-        ghost/left_wrist_roll_link:
-          Value: false
-        ghost/left_wrist_yaw_link:
-          Value: false
-        ghost/logo_link:
-          Value: false
-        ghost/mid360_link:
-          Value: false
-        ghost/pelvis:
-          Value: false
-        ghost/pelvis_contour_link:
-          Value: false
-        ghost/right_ankle_pitch_link:
-          Value: false
-        ghost/right_ankle_roll_link:
-          Value: false
-        ghost/right_elbow_link:
-          Value: false
-        ghost/right_hip_pitch_link:
-          Value: false
-        ghost/right_hip_roll_link:
-          Value: false
-        ghost/right_hip_yaw_link:
-          Value: false
-        ghost/right_knee_link:
-          Value: false
-        ghost/right_shoulder_pitch_link:
-          Value: false
-        ghost/right_shoulder_roll_link:
-          Value: false
-        ghost/right_shoulder_yaw_link:
-          Value: false
-        ghost/right_wrist_pitch_link:
-          Value: false
-        ghost/right_wrist_roll_link:
-          Value: false
-        ghost/right_wrist_yaw_link:
-          Value: false
-        ghost/tag_mount_frame:
-          Value: false
-        ghost/torso_link:
-          Value: false
-        ghost/waist_roll_link:
-          Value: false
-        ghost/waist_yaw_link:
-          Value: false
-        head_link:
-          Value: false
-        imu_in_pelvis:
-          Value: false
-        imu_in_torso:
-          Value: false
-        left_ankle_pitch_link:
-          Value: false
-        left_ankle_roll_link:
-          Value: false
-        left_elbow_link:
-          Value: false
-        left_hip_pitch_link:
-          Value: false
-        left_hip_roll_link:
-          Value: false
-        left_hip_yaw_link:
-          Value: false
-        left_knee_link:
-          Value: false
-        left_shoulder_pitch_link:
-          Value: false
-        left_shoulder_roll_link:
-          Value: false
-        left_shoulder_yaw_link:
-          Value: false
-        left_wrist_pitch_link:
-          Value: false
-        left_wrist_roll_link:
-          Value: false
-        left_wrist_yaw_link:
-          Value: false
-        livox_frame:
-          Value: true
-        logo_link:
-          Value: false
-        mid360_link:
-          Value: false
-        pelvis:
-          Value: false
-        pelvis_contour_link:
-          Value: false
-        right_ankle_pitch_link:
-          Value: false
-        right_ankle_roll_link:
-          Value: false
-        right_elbow_link:
-          Value: false
-        right_hip_pitch_link:
-          Value: false
-        right_hip_roll_link:
-          Value: false
-        right_hip_yaw_link:
-          Value: false
-        right_knee_link:
-          Value: false
-        right_shoulder_pitch_link:
-          Value: false
-        right_shoulder_roll_link:
-          Value: false
-        right_shoulder_yaw_link:
-          Value: false
-        right_wrist_pitch_link:
-          Value: false
-        right_wrist_roll_link:
-          Value: false
-        right_wrist_yaw_link:
-          Value: false
-        tag_mount_frame:
-          Value: false
-        torso_link:
-          Value: false
-        waist_roll_link:
-          Value: false
-        waist_yaw_link:
-          Value: false
-        workspace:
-          Value: false
-        world:
-          Value: false
-      Marker Scale: 1
-      Name: TF
-      Show Arrows: true
-      Show Axes: true
-      Show Names: false
-      Tree:
-        world:
-          base_footprint:
-            pelvis:
-              imu_in_pelvis:
-                {}
-              left_hip_pitch_link:
-                left_hip_roll_link:
-                  left_hip_yaw_link:
-                    left_knee_link:
-                      left_ankle_pitch_link:
-                        left_ankle_roll_link:
-                          {}
-              pelvis_contour_link:
-                {}
-              right_hip_pitch_link:
-                right_hip_roll_link:
-                  right_hip_yaw_link:
-                    right_knee_link:
-                      right_ankle_pitch_link:
-                        right_ankle_roll_link:
-                          {}
-              waist_yaw_link:
-                waist_roll_link:
-                  torso_link:
-                    d435_link:
-                      {}
-                    head_link:
-                      {}
-                    imu_in_torso:
-                      tag_mount_frame:
-                        {}
-                    left_shoulder_pitch_link:
-                      left_shoulder_roll_link:
-                        left_shoulder_yaw_link:
-                          left_elbow_link:
-                            left_wrist_roll_link:
-                              left_wrist_pitch_link:
-                                left_wrist_yaw_link:
-                                  L_hand_base_link:
-                                    {}
-                    logo_link:
-                      {}
-                    mid360_link:
-                      livox_frame:
-                        {}
-                    right_shoulder_pitch_link:
-                      right_shoulder_roll_link:
-                        right_shoulder_yaw_link:
-                          right_elbow_link:
-                            right_wrist_roll_link:
-                              right_wrist_pitch_link:
-                                right_wrist_yaw_link:
-                                  R_hand_base_link:
-                                    {}
-          ghost/base_footprint:
-            ghost/pelvis:
-              ghost/imu_in_pelvis:
-                {}
-              ghost/left_hip_pitch_link:
-                ghost/left_hip_roll_link:
-                  ghost/left_hip_yaw_link:
-                    ghost/left_knee_link:
-                      ghost/left_ankle_pitch_link:
-                        ghost/left_ankle_roll_link:
-                          {}
-              ghost/pelvis_contour_link:
-                {}
-              ghost/right_hip_pitch_link:
-                ghost/right_hip_roll_link:
-                  ghost/right_hip_yaw_link:
-                    ghost/right_knee_link:
-                      ghost/right_ankle_pitch_link:
-                        ghost/right_ankle_roll_link:
-                          {}
-              ghost/waist_yaw_link:
-                ghost/waist_roll_link:
-                  ghost/torso_link:
-                    ghost/d435_link:
-                      {}
-                    ghost/head_link:
-                      {}
-                    ghost/imu_in_torso:
-                      ghost/tag_mount_frame:
-                        {}
-                    ghost/left_shoulder_pitch_link:
-                      ghost/left_shoulder_roll_link:
-                        ghost/left_shoulder_yaw_link:
-                          ghost/left_elbow_link:
-                            ghost/left_wrist_roll_link:
-                              ghost/left_wrist_pitch_link:
-                                ghost/left_wrist_yaw_link:
-                                  ghost/L_hand_base_link:
-                                    {}
-                    ghost/logo_link:
-                      {}
-                    ghost/mid360_link:
-                      {}
-                    ghost/right_shoulder_pitch_link:
-                      ghost/right_shoulder_roll_link:
-                        ghost/right_shoulder_yaw_link:
-                          ghost/right_elbow_link:
-                            ghost/right_wrist_roll_link:
-                              ghost/right_wrist_pitch_link:
-                                ghost/right_wrist_yaw_link:
-                                  ghost/R_hand_base_link:
-                                    {}
-          workspace:
-            {}
-      Update Interval: 0
-      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -997,12 +655,12 @@ Visualization Manager:
 Window Geometry:
   Displays:
     collapsed: true
-  Height: 1531
+  Height: 1371
   Hide Left Dock: true
   Hide Right Dock: true
   Image:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000400000000000002c100000561fc0200000008fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001e800000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073000000003b00000561000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261000000010000010f000004c1fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b000004c1000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000044500000162fc0100000002fb0000000a0049006d0061006700650000000000000004450000005a00fffffffb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004df0000003efc0100000002fb0000000800540069006d00650100000000000004df0000025300fffffffb0000000800540069006d00650100000000000004500000000000000000000004df0000056100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000400000000000002c1000004c1fc0200000008fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001e800000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073000000003b000004c1000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261000000010000010f000004c1fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b000004c1000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000044500000162fc0100000002fb0000000a0049006d0061006700650000000000000004450000005a00fffffffb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004df0000003efc0100000002fb0000000800540069006d00650100000000000004df0000025300fffffffb0000000800540069006d00650100000000000004500000000000000000000004df000004c100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:
@@ -1013,4 +671,4 @@ Window Geometry:
     collapsed: true
   Width: 1247
   X: 1313
-  Y: 520
+  Y: 192

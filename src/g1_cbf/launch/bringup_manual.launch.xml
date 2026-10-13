@@ -1,5 +1,9 @@
 <launch>
-  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_inspire.urdf"/>
+  <arg name="hand_type" default="dex" description="Hand model: inspire or dex">
+    <choice value="inspire"/>
+    <choice value="dex"/>
+  </arg>
+  <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_$(var hand_type).urdf"/>
   <arg name="rviz" default="false"/>
   <arg name="ghost" default="true"/>
   <arg name="bridge" default="true"/>

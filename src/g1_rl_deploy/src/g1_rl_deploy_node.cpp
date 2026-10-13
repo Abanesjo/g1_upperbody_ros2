@@ -287,9 +287,9 @@ public:
         // Declare parameters
         this->declare_parameter<std::string>("policy_type", "mlp");
         this->declare_parameter<std::string>("policy_paths.mlp",
-            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/mlp/policy.onnx");
+            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_rubber/mlp/policy.onnx");
         this->declare_parameter<std::string>("policy_paths.gru_mlp",
-            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/gru_mlp/policy.onnx");
+            "/workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_rubber/gru_mlp/policy.onnx");
         this->declare_parameter<double>("control_dt", 0.02);
         this->declare_parameter<double>("standup_duration", 3.0);
         this->declare_parameter<double>("gait_period", 0.6);

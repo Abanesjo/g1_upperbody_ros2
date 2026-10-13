@@ -87,6 +87,11 @@ if(BUILD_TESTING)
     test/test_bridge_gravity_modes.py
     TIMEOUT 20
   )
+
+  ament_add_pytest_test(test_hand_urdfs
+    test/test_hand_urdfs.py
+    TIMEOUT 20
+  )
 endif()
 
 ament_package()
