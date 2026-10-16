@@ -29,8 +29,8 @@ g1_rl_deploy_node:
   ros__parameters: 
     policy_type: mlp #mlp or gru_mlp
     policy_paths:
-      mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/mlp/policy.onnx
-      gru_mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models/gru_mlp/policy.onnx
+      mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_rubber/mlp/policy.onnx
+      gru_mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_rubber/gru_mlp/policy.onnx
 
     # Timing
     control_dt: 0.02        # 50 Hz policy inference
