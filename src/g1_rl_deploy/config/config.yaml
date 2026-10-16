@@ -19,11 +19,14 @@
 # 20  left_wrist_pitch     P  27  right_wrist_pitch     P
 # 21  left_wrist_yaw       P  28  right_wrist_yaw       P
 #
-# The policy still outputs 29 actions, but g1_rl_deploy_node overrides
-# C-marked non-wrist joints with CBF-filtered PD targets from
-# /upper_body_targets when wbc=false. All 17 upper-body targets, including
-# P-marked policy-owned wrists, are fed as observations in MJLab order.
-# C = CBF/manual controlled (11), P = policy controlled but observed.
+# The policy still outputs 29 actions. With wbc=false g1_rl_deploy_node
+# overrides all 17 upper-body joints with PD targets, as MJLab's "pd" upper-body
+# mode does in training: C-marked joints follow the CBF-filtered
+# /upper_body_targets, and P-marked wrists, which the CBF does not publish, hold
+# their default pose. Each target is clamped to the measured position
+# +- upper_body_max_delta. All 17 targets are fed as observations in MJLab
+# order. A policy trained in MJLab's "policy" mode needs wbc=true instead.
+# C = CBF/manual controlled (11), P = held at the default pose (wrists).
 
 g1_rl_deploy_node:
   ros__parameters: 
@@ -37,6 +40,7 @@ g1_rl_deploy_node:
     standup_duration: 3.0   # seconds to interpolate to home pose
     gait_period: 0.6        # phase oscillator period (seconds)
     wbc: false              # false preserves PD upper-body override
+    upper_body_max_delta: 1.5  # [rad], MJLab max_command_delta_from_current
 
     # Velocity command limits
     cmd_vel_limits:
@@ -54,6 +58,6 @@ g1_rl_deploy_node:
     # Per-joint action scale for the 29-output MJLab policy.
     action_scale: [0.5475464630, 0.3506614664, 0.5475464630, 0.3506614664, 0.4385773139, 0.4385773139,   # left leg
                    0.5475464630, 0.3506614664, 0.5475464630, 0.3506614664, 0.4385773139, 0.4385773139,   # right leg
-                   0.5475464630, 0.2500000000, 0.2500000000,                                             # waist
+                   0.5475464630, 0.4385964912, 0.4385964912,                                             # waist
                    0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.0745008703, 0.0745008703, # left arm
                    0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.4385773139, 0.0745008703, 0.0745008703] # right arm

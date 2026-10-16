@@ -18,7 +18,6 @@
 static constexpr int NUM_MOTOR = 29;
 static constexpr int NUM_ACTION = 29;  // policy model output dimension
 static constexpr int NUM_UPPER_BODY_CMD = 17;  // MJLab upper-body command targets
-static constexpr int NUM_CBF_CONTROLLED = 11;  // non-wrist targets overridden by CBF/PD
 static constexpr int OBS_DIM = 115;  // 3+3+3+2+29+29+29+17
 static constexpr int GRU_HIDDEN_DIM = 256;
 
@@ -62,18 +61,13 @@ static const std::array<std::string, NUM_MOTOR> JOINT_NAMES = {
 };
 
 // Upper body command target order from MJLab training: waist 12-14,
-// left upper body 15-21, right upper body 22-28.
+// left upper body 15-21, right upper body 22-28. With wbc=false all of them
+// follow the command, as in MJLab's "pd" upper-body mode: the policy's outputs
+// for these joints were never applied in training.
 static constexpr int UPPER_BODY_INDICES[NUM_UPPER_BODY_CMD] = {
     12, 13, 14,
     15, 16, 17, 18, 19, 20, 21,
     22, 23, 24, 25, 26, 27, 28
-};
-
-// CBF/manual authority covers non-wrist upper body joints only.
-static constexpr int CBF_CONTROLLED_INDICES[NUM_CBF_CONTROLLED] = {
-    12, 13, 14,
-    15, 16, 17, 18,
-    22, 23, 24, 25
 };
 
 // ---------------------------------------------------------------------------
@@ -294,6 +288,9 @@ public:
         this->declare_parameter<double>("standup_duration", 3.0);
         this->declare_parameter<double>("gait_period", 0.6);
         this->declare_parameter<bool>("wbc", false);
+        // MJLab max_command_delta_from_current: with wbc=false each upper-body
+        // target is clamped to the measured position +- this many radians.
+        this->declare_parameter<double>("upper_body_max_delta", 1.5);
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x", {-1.0, 2.0});
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y", {-1.0, 1.0});
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z", {-1.0, 1.0});
@@ -315,6 +312,7 @@ public:
         standup_duration_ = this->get_parameter("standup_duration").as_double();
         gait_period_ = this->get_parameter("gait_period").as_double();
         wbc_ = this->get_parameter("wbc").as_bool();
+        upper_body_max_delta_ = this->get_parameter("upper_body_max_delta").as_double();
         default_pos_ = this->get_parameter("default_joint_pos").as_double_array();
         action_scale_ = this->get_parameter("action_scale").as_double_array();
         if (default_pos_.size() != NUM_MOTOR) {
@@ -452,7 +450,7 @@ private:
                 policy_->ResetHiddenState();
                 RCLCPP_INFO(
                     this->get_logger(), "Phase 2: policy active; waist/upper-body authority: %s",
-                    wbc_ ? "policy" : "PD targets");
+                    wbc_ ? "policy" : "PD targets (wrists held at their targets)");
             }
 
             // Build observation (115 dims)
@@ -505,10 +503,15 @@ private:
                 cmd.position[i] = raw_action[i] * action_scale_[i] + default_pos_[i];
 
             if (!wbc_) {
-                // Override non-wrist CBF/manual upper-body targets directly.
-                for (int i = 0; i < NUM_CBF_CONTROLLED; ++i) {
-                    const int motor_idx = CBF_CONTROLLED_INDICES[i];
-                    cmd.position[motor_idx] = upper_body_cmd_[motor_idx - 12];
+                // Override all 17 upper-body targets, wrists included. The CBF
+                // publishes only the 11 non-wrist joints, so the wrists hold
+                // their default pose unless another source sends them.
+                for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i) {
+                    const int motor_idx = UPPER_BODY_INDICES[i];
+                    const double current = motor_q_[motor_idx];
+                    cmd.position[motor_idx] = std::clamp(
+                        static_cast<double>(upper_body_cmd_[i]),
+                        current - upper_body_max_delta_, current + upper_body_max_delta_);
                 }
             }
 
@@ -537,6 +540,7 @@ private:
     // Parameters
     std::vector<double> default_pos_, action_scale_;
     double control_dt_, standup_duration_, gait_period_;
+    double upper_body_max_delta_{1.5};
     std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;
     PolicyType policy_type_{PolicyType::kMlp};
     bool wbc_{false};
