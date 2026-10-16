@@ -565,3 +565,32 @@ def test_orchestrator_neutral_ramp_waits_for_sim_clock():
         assert _close(commands[-1][1], DEFAULT_POSITIONS[waist_yaw])
     finally:
         _stop_orchestrator(probe, process)
+
+
+def test_orchestrator_forwards_control_command_on_receipt():
+    # With the clock frozen the publish timer cannot fire, so a new command
+    # reaches /joint_commands_safe only if it is forwarded on receipt.
+    os.environ['ROS_DOMAIN_ID'] = str(100 + os.getpid() % 100)
+    rclpy.init()
+    process = _start_orchestrator(
+        'control', parameters=['use_sim_time:=true'])
+    probe = OrchestratorProbe()
+    clock_pub = probe.create_publisher(Clock, '/clock', 1)
+    frozen = Clock()
+    frozen.clock = Time(sec=500)
+
+    try:
+        probe.wait_for(lambda: probe.orchestrator_state == 'control')
+        for _ in range(20):
+            clock_pub.publish(frozen)
+            rclpy.spin_once(probe, timeout_sec=0.02)
+
+        for lower, upper in ((0.8, 2.0), (0.9, 2.2)):
+            probe.publish_robot(lower, upper)
+            probe.wait_for(
+                lambda: probe.safe_command is not None
+                and _close(probe.safe_command.position[0], lower)
+                and _close(probe.safe_command.position[12], upper))
+            assert _seconds(probe.safe_command.header.stamp) == 500.0
+    finally:
+        _stop_orchestrator(probe, process)

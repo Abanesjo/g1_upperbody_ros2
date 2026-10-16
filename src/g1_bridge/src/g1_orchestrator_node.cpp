@@ -409,6 +409,14 @@ class G1OrchestratorNode : public rclcpp::Node {
     }
 
     has_latest_control_cmd_ = true;
+
+    // Forward at once instead of waiting for the next timer tick. The policy
+    // and this timer run on the same clock, so the timer used to fire just
+    // before each new command arrived and added about one period (10 ms) of
+    // latency. The timer still republishes the held command.
+    if (state_ == OrchestratorState::kControl) {
+      PublishOrchestratedCommand();
+    }
   }
 
   void BuildNeutralCommand(sensor_msgs::msg::JointState &cmd,
