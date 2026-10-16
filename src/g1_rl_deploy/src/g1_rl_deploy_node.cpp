@@ -291,8 +291,18 @@ public:
         // MJLab max_command_delta_from_current: with wbc=false each upper-body
         // target is clamped to the measured position +- this many radians.
         this->declare_parameter<double>("upper_body_max_delta", 1.5);
-        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x", {-1.0, 2.0});
-        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y", {-1.0, 1.0});
+        // Range of the upper-body commands in training (MJLab
+        // UPPER_BODY_JOINT_RANGES, 80% of the joint limits; wrists fixed at 0).
+        this->declare_parameter<std::vector<double>>("upper_body_command_limits.lower", {
+            -2.0944, -0.416, -0.416,
+            -2.47136, -1.27056, -2.0944, -0.83776, 0.0, 0.0, 0.0,
+            -2.47136, -1.8012, -2.0944, -0.83776, 0.0, 0.0, 0.0});
+        this->declare_parameter<std::vector<double>>("upper_body_command_limits.upper", {
+            2.0944, 0.416, 0.416,
+            2.13632, 1.8012, 2.0944, 1.67552, 0.0, 0.0, 0.0,
+            2.13632, 1.27056, 2.0944, 1.67552, 0.0, 0.0, 0.0});
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_x", {-0.5, 0.5});
+        this->declare_parameter<std::vector<double>>("cmd_vel_limits.lin_vel_y", {-0.5, 0.5});
         this->declare_parameter<std::vector<double>>("cmd_vel_limits.ang_vel_z", {-1.0, 1.0});
         this->declare_parameter<std::vector<double>>("default_joint_pos", std::vector<double>{
             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
@@ -324,6 +334,22 @@ public:
             throw std::runtime_error(
                 "action_scale must contain " + std::to_string(NUM_ACTION) +
                 " values");
+        }
+        upper_body_cmd_lower_ =
+            this->get_parameter("upper_body_command_limits.lower").as_double_array();
+        upper_body_cmd_upper_ =
+            this->get_parameter("upper_body_command_limits.upper").as_double_array();
+        if (upper_body_cmd_lower_.size() != NUM_UPPER_BODY_CMD ||
+            upper_body_cmd_upper_.size() != NUM_UPPER_BODY_CMD) {
+            throw std::runtime_error(
+                "upper_body_command_limits.lower and .upper must contain " +
+                std::to_string(NUM_UPPER_BODY_CMD) + " values");
+        }
+        for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i) {
+            if (upper_body_cmd_lower_[i] > upper_body_cmd_upper_[i]) {
+                throw std::runtime_error(
+                    "upper_body_command_limits.lower must not exceed .upper");
+            }
         }
 
         auto lim_x = this->get_parameter("cmd_vel_limits.lin_vel_x").as_double_array();
@@ -413,8 +439,12 @@ private:
         for (size_t j = 0; j < msg->name.size(); ++j) {
             for (int i = 0; i < NUM_UPPER_BODY_CMD; ++i) {
                 if (msg->name[j] == JOINT_NAMES[UPPER_BODY_INDICES[i]]) {
+                    // Keep the command inside the trained range: it is both an
+                    // observation and the PD target of this joint.
                     if (j < msg->position.size())
-                        upper_body_cmd_[i] = static_cast<float>(msg->position[j]);
+                        upper_body_cmd_[i] = static_cast<float>(std::clamp(
+                            msg->position[j],
+                            upper_body_cmd_lower_[i], upper_body_cmd_upper_[i]));
                     break;
                 }
             }
@@ -539,6 +569,7 @@ private:
 
     // Parameters
     std::vector<double> default_pos_, action_scale_;
+    std::vector<double> upper_body_cmd_lower_, upper_body_cmd_upper_;
     double control_dt_, standup_duration_, gait_period_;
     double upper_body_max_delta_{1.5};
     std::array<float, 2> vel_limit_x_, vel_limit_y_, vel_limit_z_;

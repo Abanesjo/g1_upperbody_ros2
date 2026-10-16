@@ -40,14 +40,22 @@ def resolve_lookup_timeout_sec(node):
     return legacy_timeout
 
 
+# How far a transform stamp may lead the node clock and still count as fresh.
+# Under simulation time the pose stamps run up to a few milliseconds ahead of
+# the /clock a node has processed.
+DEFAULT_FUTURE_TOLERANCE_SEC = 0.02
+
+
 class TfPoseLookup:
     """Lookup the latest transform between two configured frames."""
 
-    def __init__(self, node, target_frame, source_frame, timeout_sec):
+    def __init__(self, node, target_frame, source_frame, timeout_sec,
+                 future_tolerance_sec=DEFAULT_FUTURE_TOLERANCE_SEC):
         self._node = node
         self.target_frame = normalize_frame(target_frame)
         self.source_frame = normalize_frame(source_frame)
         self._timeout = Duration(seconds=max(0.0, float(timeout_sec)))
+        self._future_tolerance_sec = max(0.0, float(future_tolerance_sec))
         self._buffer = Buffer()
         self._listener = TransformListener(self._buffer, node)
 
@@ -91,11 +99,11 @@ class TfPoseLookup:
         age = (
             self._node.get_clock().now() - pose.stamp
         ).nanoseconds * 1e-9
-        if age < 0.0:
+        if age < -self._future_tolerance_sec:
             # A future-dated dynamic transform is not fresh evidence. Return
             # infinity so every enabled stale-timeout gate fails closed.
             return float('inf')
-        return age
+        return max(age, 0.0)
 
     def describe(self):
         return f'{self.target_frame} -> {self.source_frame}'

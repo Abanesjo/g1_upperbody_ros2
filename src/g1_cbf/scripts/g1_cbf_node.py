@@ -37,6 +37,7 @@ from g1_cbf.human_capsules import (
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
     CONTROLLED_JOINT_DEFAULTS,
+    CONTROLLED_JOINT_TARGET_LIMITS,
     LEG_JOINTS,
     N_HUMAN_CAPSULES,
     N_CONTROLLED_JOINTS,
@@ -56,6 +57,22 @@ from g1_cbf_msg.msg import (
 
 WORLD_FRAME = 'world'
 PELVIS_FRAME = 'pelvis'
+
+
+def clamp_cbf_target(target, q_actual, max_lead):
+    """Keep the integrated CBF target near the measured joints and in range.
+
+    Without the range limit the target winds up past a joint's mechanical
+    stop whenever a barrier keeps pushing that joint (for example the waist
+    holding the head inside the workspace circle), and the policy then sees a
+    command far outside its training range.
+    """
+    target = np.clip(target, q_actual - max_lead, q_actual + max_lead)
+    return np.clip(
+        target,
+        CONTROLLED_JOINT_TARGET_LIMITS[:, 0],
+        CONTROLLED_JOINT_TARGET_LIMITS[:, 1],
+    )
 
 
 class G1CBFNode(Node):
@@ -590,12 +607,11 @@ class G1CBFNode(Node):
         # Integrate safe velocity into persistent target
         self.q_cbf_target += dq_safe * dt
 
-        # Clamp target to stay near actual state
-        max_lead = self.get_parameter('max_lead').value
-        self.q_cbf_target = np.clip(
+        # Clamp target to stay near actual state and in the trained range
+        self.q_cbf_target = clamp_cbf_target(
             self.q_cbf_target,
-            self.q_ctrl - max_lead,
-            self.q_ctrl + max_lead,
+            self.q_ctrl,
+            self.get_parameter('max_lead').value,
         )
 
         # Publish safe command

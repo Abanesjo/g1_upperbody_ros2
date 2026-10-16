@@ -42,10 +42,23 @@ g1_rl_deploy_node:
     wbc: false              # false preserves PD upper-body override
     upper_body_max_delta: 1.5  # [rad], MJLab max_command_delta_from_current
 
-    # Velocity command limits
+    # Range of the 17 upper-body commands (MJLab order: waist yaw/roll/pitch,
+    # left shoulder pitch/roll/yaw, elbow, wrist roll/pitch/yaw, then right).
+    # MJLab UPPER_BODY_JOINT_RANGES: 80% of the joint limits, wrists fixed at 0.
+    # Commands are clamped to it before they enter the observation and the PD
+    # override; the policy has never seen anything outside it.
+    upper_body_command_limits:
+      lower: [-2.0944, -0.416, -0.416,
+              -2.47136, -1.27056, -2.0944, -0.83776, 0.0, 0.0, 0.0,
+              -2.47136, -1.8012, -2.0944, -0.83776, 0.0, 0.0, 0.0]
+      upper: [2.0944, 0.416, 0.416,
+              2.13632, 1.8012, 2.0944, 1.67552, 0.0, 0.0, 0.0,
+              2.13632, 1.27056, 2.0944, 1.67552, 0.0, 0.0, 0.0]
+
+    # Velocity command limits (the policy's training range)
     cmd_vel_limits:
-      lin_vel_x: [-1.0, 2.0]
-      lin_vel_y: [-1.0, 1.0]
+      lin_vel_x: [-0.5, 0.5]
+      lin_vel_y: [-0.5, 0.5]
       ang_vel_z: [-1.0, 1.0]
 
     # Default joint positions (MJLab home pose) — all 29 DOF

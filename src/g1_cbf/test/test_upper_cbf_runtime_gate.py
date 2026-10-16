@@ -244,14 +244,36 @@ def test_tf_pose_future_stamp_maps_to_infinite_age_for_fail_closed_gates():
             now=lambda: Time(seconds=10.0),
         ),
     )
+    lookup._future_tolerance_sec = 0.02
 
     zero_stamp_pose = SimpleNamespace(stamp=Time())
     future_pose = SimpleNamespace(stamp=Time(seconds=10.1))
     past_pose = SimpleNamespace(stamp=Time(seconds=9.75))
+    # Simulation-time pose stamps lead the node clock by a few milliseconds.
+    slightly_future_pose = SimpleNamespace(stamp=Time(seconds=10.005))
 
     assert lookup.age_sec(zero_stamp_pose) is None
     assert math.isinf(lookup.age_sec(future_pose))
     assert lookup.age_sec(past_pose) == pytest.approx(0.25)
+    assert lookup.age_sec(slightly_future_pose) == 0.0
+
+
+def test_cbf_target_cannot_wind_up_past_the_trained_range():
+    waist_pitch = _MODULE.CONTROLLED_JOINTS.index('waist_pitch_joint')
+    lower, upper = _MODULE.CONTROLLED_JOINT_TARGET_LIMITS[waist_pitch]
+    assert (lower, upper) == pytest.approx((-0.416, 0.416))
+
+    # The waist sits at its -0.52 rad stop while a barrier keeps driving it
+    # further; max_lead alone would let the target reach -2.02.
+    measured = np.zeros(len(_MODULE.CONTROLLED_JOINTS))
+    measured[waist_pitch] = -0.52
+    target = measured.copy()
+    target[waist_pitch] = -2.04
+
+    clamped = _MODULE.clamp_cbf_target(target, measured, max_lead=1.5)
+
+    assert clamped[waist_pitch] == pytest.approx(-0.416)
+    np.testing.assert_allclose(np.delete(clamped, waist_pitch), 0.0)
 
 
 def test_reenable_resets_filter_target_to_current_measurement():

@@ -298,6 +298,33 @@ CONTROLLED_JOINTS = [
 ]
 N_CONTROLLED_JOINTS = len(CONTROLLED_JOINTS)
 
+# Joint limits (rad) of the controlled joints, from the URDF.
+_CONTROLLED_JOINT_LIMITS = {
+    'waist_yaw_joint': (-2.618, 2.618),
+    'waist_roll_joint': (-0.52, 0.52),
+    'waist_pitch_joint': (-0.52, 0.52),
+    'left_shoulder_pitch_joint': (-3.0892, 2.6704),
+    'left_shoulder_roll_joint': (-1.5882, 2.2515),
+    'left_shoulder_yaw_joint': (-2.618, 2.618),
+    'left_elbow_joint': (-1.0472, 2.0944),
+    'right_shoulder_pitch_joint': (-3.0892, 2.6704),
+    'right_shoulder_roll_joint': (-2.2515, 1.5882),
+    'right_shoulder_yaw_joint': (-2.618, 2.618),
+    'right_elbow_joint': (-1.0472, 2.0944),
+}
+# Range of the upper-body commands the policy was trained on: 80% of the
+# joint limits (MJLab UPPER_BODY_JOINT_RANGES). Targets outside it are out of
+# distribution for the policy and can push a joint into its mechanical stop.
+CONTROLLED_JOINT_TARGET_LIMITS = np.array(
+    [
+        [0.8 * low, 0.8 * high]
+        for low, high in (
+            _CONTROLLED_JOINT_LIMITS[name] for name in CONTROLLED_JOINTS
+        )
+    ],
+    dtype=np.float64,
+)
+
 CONTROLLED_JOINT_DEFAULTS = np.array([
     0.0,   # waist_yaw
     0.0,   # waist_roll
