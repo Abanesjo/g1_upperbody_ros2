@@ -69,6 +69,12 @@ In one terminal within the container:
 ros2 launch g1_cbf bringup.launch.xml rviz:=true simulator:=true
 ```
 
+To run on the simulator's clock (`use_sim_time:=true`, which the workspace and human-avoidance features need for the `world → pelvis` transform), start the simulator's clock and pelvis pose first, in a terminal of its own:
+```
+ros2 launch g1_navigation odom_simulation.launch.xml
+ros2 launch g1_cbf bringup.launch.xml rviz:=true simulator:=true use_sim_time:=true
+```
+
 The launch files assume the stock rubber hands (`hand_type:=default`, with `robot: "g1"` in the simulator's `config.yaml`). For a robot with Inspire or Dex3 hands, add `hand_type:=inspire` or `hand_type:=dex` (and set `robot: "g1_inspire"` or `robot: "g1_dex"` in the simulator's `config.yaml`).
 
 Only the bridge node talks to the simulator or the robot, and it does so with `unitree_sdk2` directly. With `simulator:=true` it expects the simulator on the loopback interface of this machine (`interface: "lo"` and `domain_id: 0` in the simulator's `config.yaml`). For the real robot, leave out `simulator:=true` and pass the network interface that is connected to the robot, for example `network_interface:=enp130s0`.

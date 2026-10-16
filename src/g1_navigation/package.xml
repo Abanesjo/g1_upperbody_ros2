@@ -20,6 +20,7 @@
   <depend>tf2_ros</depend>
   <depend>ompl</depend>
 
+  <exec_depend>g1_bridge</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

@@ -21,7 +21,7 @@ Avoid editing `dependencies/` unless the change is explicitly for vendored code.
 - `colcon test --event-handlers console_direct+`: runs available ROS tests and ament lint checks.
 - `ros2 launch g1_cbf bringup.launch.xml`: launches the CBF bringup flow. Other launch files follow the same pattern, for example `ros2 launch g1_bridge g1_bridge.launch.xml`.
 
-The container entrypoint also sets the Zenoh defaults through `RMW_IMPLEMENTATION=rmw_zenoh_cpp` and `ZENOH_ROUTER_CONFIG_URI`. Nodes only find each other through a Zenoh router, so start `ros2 run rmw_zenoh_cpp rmw_zenohd` first. Only `g1_bridge_node` talks to the robot or the simulator, with `unitree_sdk2` on the interface given by the `network_interface` launch argument (default `lo`).
+The container entrypoint also sets the Zenoh defaults through `RMW_IMPLEMENTATION=rmw_zenoh_cpp` and `ZENOH_ROUTER_CONFIG_URI`. Nodes only find each other through a Zenoh router, so start `ros2 run rmw_zenoh_cpp rmw_zenohd` first. Only `g1_bridge_node` talks to the robot or the simulator, with `unitree_sdk2` on the interface given by the `network_interface` launch argument (default `lo`). In simulation, `sim_relay_node` (started by `ros2 launch g1_navigation odom_simulation.launch.xml`, before the bringup) also listens to the simulator and publishes `/clock` and `/pose/pelvis`.
 
 ## Coding Style & Naming Conventions
 

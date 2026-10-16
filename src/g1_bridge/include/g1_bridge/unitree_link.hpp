@@ -60,7 +60,10 @@ class UnitreeLink {
   void SubscribeClock(ClockCallback callback);
   void SubscribePelvisPose(PoseCallback callback);
 
-  // rt/lowcmd
+  // rt/lowcmd. No writer exists until EnableLowCommand(), so a process that
+  // only listens, like sim_relay_node, never appears as a lowcmd source.
+  // WriteLowCommand returns false before that.
+  void EnableLowCommand();
   bool WriteLowCommand(const LowCommand &command);
 
   // Unitree's motion switcher service, which exists on the robot only. Both

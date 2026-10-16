@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-ROS 2 Jazzy workspace for low-level control of a Unitree G1 (29 DOF): an RL policy for locomotion, control-barrier-function (CBF) safety filters on upper-body joint targets and base velocity, and a joystick-driven orchestrator between the policy and the motors. It drives either the real robot or a MuJoCo simulator. The ROS graph runs on Zenoh (`rmw_zenoh_cpp`); only `g1_bridge_node` talks to the robot or the simulator, and it does so with `unitree_sdk2`, not with ROS topics.
+ROS 2 Jazzy workspace for low-level control of a Unitree G1 (29 DOF): an RL policy for locomotion, control-barrier-function (CBF) safety filters on upper-body joint targets and base velocity, and a joystick-driven orchestrator between the policy and the motors. It drives either the real robot or a MuJoCo simulator. The ROS graph runs on Zenoh (`rmw_zenoh_cpp`); only `g1_bridge_node` talks to the robot or the simulator, and it does so with `unitree_sdk2`, not with ROS topics. In simulation, `sim_relay_node` also listens to the simulator, for `/clock` and `/pose/pelvis`.
 
 ## Work only inside Docker
 
@@ -52,11 +52,11 @@ python3 -m pytest -p no:cacheprovider src/g1_cbf/test/test_workspace_manager.py 
 ## Running
 
 ```bash
+ros2 launch g1_navigation odom_simulation.launch.xml                      # simulator only, start first: /clock, /pose/pelvis, world -> pelvis TF
 ros2 launch g1_cbf bringup.launch.xml simulator:=true rviz:=true          # policy + CBF stack
 ros2 launch g1_cbf bringup_manual.launch.xml simulator:=true rviz:=true   # same, plus a slider GUI for upper-body targets
 ros2 launch g1_cbf dancing_demo.launch.xml simulator:=true rviz:=true     # same, plus CSV dance playback
 ros2 launch g1_human g1_human_manual.launch.xml                           # simulated human colliders with a pose/joint GUI
-ros2 launch g1_navigation odom_simulation.launch.xml                      # world -> pelvis TF from the simulator
 ```
 
 - **These launches command motors.** The bridge writes `rt/lowcmd` with `unitree_sdk2` on the interface named by `network_interface`, which defaults to `lo`, where a simulator on the same machine listens. `simulator` defaults to `false`, which targets the real robot: the bridge first releases Unitree's built-in motion service and exits if that service does not answer, so the two defaults together (`simulator:=false` on `lo`) end in an error and command nothing. `simulator:=true` skips the release and commands whatever listens on that interface, a real robot included. Before launching, confirm with the user whether the target is the simulator or hardware, and which interface.
@@ -84,7 +84,7 @@ ros2 launch g1_navigation odom_simulation.launch.xml                      # worl
 - `bringup.launch.xml` starts no publisher for `/upper_body_targets_unsafe`; it is the input for an external motion source. `bringup_manual` adds `joint_command_gui` and `dancing_demo` adds `motion_playback`.
 - With `area_cbf:=false`, `bringup.launch.xml` does not start `cmd_vel_cbf_node` and the policy reads `/cmd_vel` directly.
 - `wbc` decides who owns the upper body. With `wbc:=false` (the launch default) `g1_rl_deploy_node` overwrites the 11 CBF-controlled joints of the policy output with `/upper_body_targets`, and the bridge adds Pinocchio gravity feed-forward on joints 12-28 (if `gravity:=true`) and uses the `*_manual` waist gains in `g1_bridge/config/gains.yaml`. With `wbc:=true` the policy drives all 29 joints and the targets are only an observation.
-- `rt/lowcmd` and `rt/lowstate` are DDS topics of `unitree_sdk2` (which brings its own CycloneDDS 0.10.2), not ROS topics, so `ros2 topic` does not show them. The G1 uses the SDK's `unitree_hg` types with 35 motor slots; `unitree_go` is for the quadrupeds. With `simulator:=true` the bridge also republishes the simulator's `rt/clock` and `rt/pose/pelvis` as `/clock` and `/pose/pelvis`, which exist on DDS only.
+- `rt/lowcmd` and `rt/lowstate` are DDS topics of `unitree_sdk2` (which brings its own CycloneDDS 0.10.2), not ROS topics, so `ros2 topic` does not show them. The G1 uses the SDK's `unitree_hg` types with 35 motor slots; `unitree_go` is for the quadrupeds. The simulator's `rt/clock` and `rt/pose/pelvis` also exist on DDS only; `sim_relay_node` (`g1_bridge`, started by `g1_navigation/odom_simulation.launch.xml`) republishes them as `/clock` and `/pose/pelvis`. It only listens, through `UnitreeLink` without `EnableLowCommand()`, so it has no `rt/lowcmd` writer.
 - The bridge is three parts. `low_cmd_builder` turns orchestrator state, targets and gravity torques into a command with its CRC and knows neither ROS nor the SDK. `unitree_link` wraps the SDK behind a pimpl and is the only translation unit that may include SDK headers: their CycloneDDS headers differ from the ones a ROS CycloneDDS installs, and the executable carries an `RPATH` so that the SDK's own DDS libraries are loaded (see `g1_bridge/CMakeLists.txt`). `g1_bridge_node.cpp` is the rclcpp glue. SDK callbacks run on SDK threads, so the state they share with ROS callbacks sits behind `robot_state_mutex_`.
 
 ### Orchestrator states and joystick map
@@ -117,7 +117,7 @@ ros2 launch g1_navigation odom_simulation.launch.xml                      # worl
 
 Human avoidance, the workspace circle and path following need the TF `world → pelvis`, and the bringup launches do not provide it. Start exactly one source from `g1_navigation`:
 
-- `odom_simulation.launch.xml` (simulator): `/pose/pelvis` from the MuJoCo fork, republished by the bridge, becomes `world → base_footprint`, plus a static `base_footprint → pelvis`.
+- `odom_simulation.launch.xml` (simulator): `/pose/pelvis` from the MuJoCo fork, republished by its `sim_relay_node`, becomes `world → base_footprint`, plus a static `base_footprint → pelvis`. The same node publishes `/clock`. The launch takes `network_interface` and `domain_id`, which must match the simulator's `config.yaml`, like the bridge's.
 - `apriltag_localization.launch.xml` (hardware): an externally tracked tag pose on `/pose/tag_frame`, composed with the URDF's `tag_mount_frame ← pelvis` at the same timestamp. `tag_mount_frame` exists in the three `g1_29_<hand_type>.urdf` files but not in `g1_29dof.urdf`.
 - `rtabmap.launch.xml` (hardware): ICP odometry from the Livox MID-360.
 
@@ -126,7 +126,7 @@ Human avoidance, the workspace circle and path following need the TF `world → 
 ### Conventions that are easy to break
 
 - **Freshness gates.** When a filter needs `world → pelvis` and it is missing, stale or future-dated, the upper-body CBF holds the measured joints, the velocity CBF zeroes linear velocity and a workspace capture is rejected. Stale `/human/colliders` drops the human constraints for that tick. Keep these behaviours when editing those nodes.
-- **One clock per session.** The gates compare message and TF stamps with the node clock (`tf_stale_timeout_sec`, `human_timeout_sec`), and the simulator stamps `/pose/pelvis` in simulation time. In simulation, anything that needs `world → pelvis` therefore requires `use_sim_time:=true` on the bringup and `g1_human` launches too; they default to `false`, `odom_simulation.launch.xml` to `true`. `/clock` exists only while the bridge runs with `simulator:=true`, so nodes on simulation time stand still without it.
+- **One clock per session.** The gates compare message and TF stamps with the node clock (`tf_stale_timeout_sec`, `human_timeout_sec`), and the simulator stamps `/pose/pelvis` in simulation time. In simulation, anything that needs `world → pelvis` therefore requires `use_sim_time:=true` on the bringup and `g1_human` launches too; they default to `false`, `odom_simulation.launch.xml` to `true`. `/clock` exists only while `odom_simulation.launch.xml` runs, so nodes on simulation time stand still without it; start it before the bringup. The orchestrator takes the start of its 3 s stand-up ramp from its first published command, which needs `/clock`. It used to take it from the first `/joint_states`, which could arrive before the first `/clock`, and the ramp then ended at once.
 - **QoS.** Streams (`/joint_states`, `/joint_commands*`, `/upper_body_targets*`, `/cmd_vel*`, `/human/colliders`) are BEST_EFFORT, VOLATILE, depth 1. State topics (`/orchestrator/state`, `/cbf/enabled`, `/cbf/external_enabled`, `/cbf/workspace_enable_request`, `/cbf/workspace_state`) are RELIABLE, TRANSIENT_LOCAL, depth 1. Match the existing profile when adding a publisher or subscriber.
 - **Joint order.** The 29-joint motor order (legs 0-11, waist 12-14, left arm 15-21, right arm 22-28; index map at the top of `g1_rl_deploy/config/config.yaml`) is hard-coded as `JOINT_NAMES` in `g1_bridge_node.cpp`, `g1_orchestrator_node.cpp`, `g1_rl_deploy_node.cpp` and several Python scripts and tests. The 11 CBF-controlled joints (waist, shoulders and elbows; wrists excluded) are repeated in `jax_kinematics.py`, `g1_rl_deploy_node.cpp` (`CBF_CONTROLLED_INDICES`), `motion_playback.py` and the GUIs. Change them together.
 - **Policy contract.** `g1_rl_deploy_node` validates the ONNX file at load: input `obs` of 115 floats (angular velocity 3, projected gravity 3, velocity command 3, gait phase 2, joint position 29, joint velocity 29, last action 29, upper-body targets 17) and output `actions` of 29; `gru_mlp` adds `h_in`/`h_out` of shape `[1,1,256]`. `default_joint_pos` and `action_scale` in `g1_rl_deploy/config/config.yaml` must match the trained policy (training configs are in `models/<type>/params/`). The orchestrator's neutral pose (`DEFAULT_JOINT_POS`) is a separate constant with different arm angles.

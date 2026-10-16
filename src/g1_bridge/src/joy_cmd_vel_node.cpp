@@ -12,14 +12,15 @@ constexpr std::size_t AXIS_LINEAR_Y = 0;
 constexpr std::size_t AXIS_LINEAR_X = 1;
 constexpr std::size_t AXIS_ANGULAR_Z = 3;
 
-constexpr double LIN_X_SCALE = 1.0;
-constexpr double LIN_Y_SCALE = 1.0;
+// Full stick deflection maps to the +-0.5 m/s linear limit.
+constexpr double LIN_X_SCALE = 0.5;
+constexpr double LIN_Y_SCALE = 0.5;
 constexpr double ANG_Z_SCALE = 1.0;
 
-constexpr double LIN_X_MIN = -1.0;
-constexpr double LIN_X_MAX = 1.0;
-constexpr double LIN_Y_MIN = -1.0;
-constexpr double LIN_Y_MAX = 1.0;
+constexpr double LIN_X_MIN = -0.5;
+constexpr double LIN_X_MAX = 0.5;
+constexpr double LIN_Y_MIN = -0.5;
+constexpr double LIN_Y_MAX = 0.5;
 constexpr double ANG_Z_MIN = -1.0;
 constexpr double ANG_Z_MAX = 1.0;
 

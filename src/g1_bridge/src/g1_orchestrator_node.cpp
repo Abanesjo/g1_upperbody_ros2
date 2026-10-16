@@ -223,10 +223,12 @@ class G1OrchestratorNode : public rclcpp::Node {
     }
   }
 
-  void StartNeutralRamp(const rclcpp::Time &now) {
-    neutral_start_positions_ = current_positions_;
-    neutral_start_time_ = now;
+  // The ramp takes its start pose and time on its first published command,
+  // not here: under simulation time the first /joint_states can arrive before
+  // the first /clock, and a ramp stamped at t = 0 would end on the next tick.
+  void StartNeutralRamp() {
     neutral_ramp_active_ = true;
+    neutral_ramp_pending_start_ = true;
     SetState(OrchestratorState::kNeutral);
   }
 
@@ -234,6 +236,7 @@ class G1OrchestratorNode : public rclcpp::Node {
     const bool damp_pressed = IsButtonPressed(*msg, JOY_DAMP_BUTTON);
     if (damp_pressed && state_ != OrchestratorState::kDamp) {
       neutral_ramp_active_ = false;
+      neutral_ramp_pending_start_ = false;
       SetState(OrchestratorState::kDamp);
       RCLCPP_ERROR(this->get_logger(),
                    "Joy button[%d] pressed - entering latched damp state",
@@ -305,7 +308,7 @@ class G1OrchestratorNode : public rclcpp::Node {
 
     if (state_ == OrchestratorState::kControl) {
       if (has_state_) {
-        StartNeutralRamp(this->get_clock()->now());
+        StartNeutralRamp();
       } else {
         SetState(OrchestratorState::kNeutral);
       }
@@ -362,7 +365,7 @@ class G1OrchestratorNode : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(),
                     "Received first /joint_states - starting in damp mode");
       } else {
-        StartNeutralRamp(this->get_clock()->now());
+        StartNeutralRamp();
         RCLCPP_INFO(this->get_logger(),
                     "Received first /joint_states - starting neutral ramp");
       }
@@ -410,6 +413,14 @@ class G1OrchestratorNode : public rclcpp::Node {
 
   void BuildNeutralCommand(sensor_msgs::msg::JointState &cmd,
                            const rclcpp::Time &now) {
+    if (neutral_ramp_pending_start_) {
+      neutral_start_positions_ = current_positions_;
+      neutral_start_time_ = now;
+      neutral_ramp_pending_start_ = false;
+      RCLCPP_INFO(this->get_logger(),
+                  "Neutral ramp started at t=%.3f s, %.1f s to the stand pose",
+                  now.seconds(), NEUTRAL_DURATION_SECONDS);
+    }
     double ratio = 1.0;
     if (neutral_ramp_active_) {
       ratio = Clamp(
@@ -454,9 +465,14 @@ class G1OrchestratorNode : public rclcpp::Node {
     if (!has_state_) {
       return;
     }
+    const auto now = this->get_clock()->now();
+    // Simulation time before the first /clock.
+    if (now.nanoseconds() == 0) {
+      return;
+    }
 
     sensor_msgs::msg::JointState cmd;
-    cmd.header.stamp = this->get_clock()->now();
+    cmd.header.stamp = now;
     cmd.name.reserve(G1_NUM_MOTOR);
     cmd.position.reserve(G1_NUM_MOTOR);
     cmd.velocity.reserve(G1_NUM_MOTOR);
@@ -499,6 +515,7 @@ class G1OrchestratorNode : public rclcpp::Node {
   bool has_state_{false};
   bool has_latest_control_cmd_{false};
   bool neutral_ramp_active_{false};
+  bool neutral_ramp_pending_start_{false};
   bool external_cbf_enabled_{false};
   bool workspace_enable_requested_{false};
   bool last_control_button_pressed_{false};

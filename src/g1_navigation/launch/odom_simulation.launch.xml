@@ -1,6 +1,17 @@
 <?xml version="1.0"?>
 <launch>
     <arg name="use_sim_time" default="true"/>
+    <arg name="network_interface" default="lo" description="Network interface unitree_sdk2 uses to reach unitree_mujoco (its config.yaml interface)"/>
+    <arg name="domain_id" default="0" description="DDS domain of unitree_mujoco (its config.yaml domain_id)"/>
+
+    <!-- unitree_mujoco's rt/clock and rt/pose/pelvis -> /clock and /pose/pelvis.
+         It is the source of /clock, so it never runs on simulation time. Start
+         this launch before a bringup with use_sim_time:=true. -->
+    <node pkg="g1_bridge" exec="sim_relay_node" name="sim_relay_node" output="screen">
+        <param name="network_interface" value="$(var network_interface)"/>
+        <param name="domain_id" value="$(var domain_id)"/>
+        <param name="use_sim_time" value="false"/>
+    </node>
 
     <node pkg="g1_navigation" exec="base_footprint_tf_publisher_node"
         name="base_footprint_tf_publisher_node" output="screen">

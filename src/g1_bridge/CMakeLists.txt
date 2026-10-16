@@ -65,10 +65,13 @@ add_executable(g1_orchestrator_node
 add_executable(joy_cmd_vel_node
   src/joy_cmd_vel_node.cpp
 )
+# Republishes unitree_mujoco's rt/clock and rt/pose/pelvis; started by
+# g1_navigation/launch/odom_simulation.launch.xml.
+add_executable(sim_relay_node
+  src/sim_relay_node.cpp
+)
 ament_target_dependencies(g1_bridge_node
-  geometry_msgs
   rclcpp
-  rosgraph_msgs
   sensor_msgs
   std_msgs
 )
@@ -78,6 +81,13 @@ target_link_libraries(g1_bridge_node
   unitree_link
 )
 g1_bridge_use_unitree_dds_libraries(g1_bridge_node)
+ament_target_dependencies(sim_relay_node
+  geometry_msgs
+  rclcpp
+  rosgraph_msgs
+)
+target_link_libraries(sim_relay_node unitree_link)
+g1_bridge_use_unitree_dds_libraries(sim_relay_node)
 ament_target_dependencies(g1_orchestrator_node
   g1_cbf_msg
   rclcpp
@@ -98,6 +108,7 @@ install(TARGETS
   g1_bridge_node
   g1_orchestrator_node
   joy_cmd_vel_node
+  sim_relay_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

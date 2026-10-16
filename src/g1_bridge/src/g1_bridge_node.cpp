@@ -14,9 +14,7 @@
 #include "g1_bridge/gravity_compensation.hpp"
 #include "g1_bridge/low_cmd_builder.hpp"
 #include "g1_bridge/unitree_link.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "rosgraph_msgs/msg/clock.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -119,6 +117,7 @@ class G1BridgeNode : public rclcpp::Node {
                 network_interface.c_str(), domain_id);
     link_ = std::make_unique<g1_bridge::UnitreeLink>(domain_id,
                                                      network_interface);
+    link_->EnableLowCommand();
 
     if (simulator) {
       RCLCPP_WARN(this->get_logger(),
@@ -189,21 +188,6 @@ class G1BridgeNode : public rclcpp::Node {
         [this](const g1_bridge::RobotState &state) {
           RobotStateCallback(state);
         });
-    if (simulator) {
-      // unitree_mujoco publishes simulation time and the pelvis pose on DDS
-      // only, so the ROS graph gets them through this node.
-      clock_pub_ = this->create_publisher<rosgraph_msgs::msg::Clock>(
-          "/clock", rclcpp::ClockQoS());
-      pelvis_pose_pub_ =
-          this->create_publisher<geometry_msgs::msg::PoseStamped>(
-              "/pose/pelvis", sensor_qos);
-      link_->SubscribeClock(
-          [this](const g1_bridge::TimeStamp &stamp) { ClockCallback(stamp); });
-      link_->SubscribePelvisPose(
-          [this](const g1_bridge::StampedPose &pose) {
-            PelvisPoseCallback(pose);
-          });
-    }
 
     republish_timer_ = rclcpp::create_timer(
         this, this->get_clock(),
@@ -368,48 +352,6 @@ class G1BridgeNode : public rclcpp::Node {
     }
   }
 
-  // Runs on an SDK thread.
-  void ClockCallback(const g1_bridge::TimeStamp &stamp) {
-    if (ros_shutting_down_->load()) {
-      return;
-    }
-    try {
-      rosgraph_msgs::msg::Clock msg;
-      msg.clock.sec = stamp.sec;
-      msg.clock.nanosec = stamp.nanosec;
-      clock_pub_->publish(msg);
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR_THROTTLE(this->get_logger(), steady_clock_, 2000,
-                            "Failed to forward the simulator clock: %s",
-                            e.what());
-    }
-  }
-
-  // Runs on an SDK thread.
-  void PelvisPoseCallback(const g1_bridge::StampedPose &pose) {
-    if (ros_shutting_down_->load()) {
-      return;
-    }
-    try {
-      geometry_msgs::msg::PoseStamped msg;
-      msg.header.stamp.sec = pose.stamp.sec;
-      msg.header.stamp.nanosec = pose.stamp.nanosec;
-      msg.header.frame_id = pose.frame_id;
-      msg.pose.position.x = pose.position[0];
-      msg.pose.position.y = pose.position[1];
-      msg.pose.position.z = pose.position[2];
-      msg.pose.orientation.x = pose.orientation_xyzw[0];
-      msg.pose.orientation.y = pose.orientation_xyzw[1];
-      msg.pose.orientation.z = pose.orientation_xyzw[2];
-      msg.pose.orientation.w = pose.orientation_xyzw[3];
-      pelvis_pose_pub_->publish(msg);
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR_THROTTLE(this->get_logger(), steady_clock_, 2000,
-                            "Failed to forward the simulator pelvis pose: %s",
-                            e.what());
-    }
-  }
-
   void JointCommandSafeCallback(
       const sensor_msgs::msg::JointState::SharedPtr msg) {
     {
@@ -511,18 +453,12 @@ class G1BridgeNode : public rclcpp::Node {
 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
-  rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_pub_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr
-      pelvis_pose_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr safe_cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr
       orchestrator_state_sub_;
   rclcpp::TimerBase::SharedPtr republish_timer_;
   std::shared_ptr<std::atomic_bool> ros_shutting_down_{
       std::make_shared<std::atomic_bool>(false)};
-  // The simulator clock drives this node's own clock when use_sim_time is
-  // set, so failures to forward it are throttled on a clock that keeps going.
-  rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
 
   std::unordered_map<std::string, std::size_t> joint_map_;
   std::array<g1_bridge::PidGains, kNumMotors> gains_{};

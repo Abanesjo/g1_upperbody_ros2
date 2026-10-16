@@ -90,6 +90,8 @@ class UnitreeLinkTest : public ::testing::Test {
   static void SetUpTestSuite() {
     link_ = std::make_unique<g1_bridge::UnitreeLink>(TEST_DOMAIN_ID,
                                                      TEST_INTERFACE);
+    wrote_before_enable_ = link_->WriteLowCommand(g1_bridge::LowCommand{});
+    link_->EnableLowCommand();
 
     low_state_publisher_ =
         std::make_unique<unitree::robot::ChannelPublisher<LowState_>>(
@@ -128,6 +130,7 @@ class UnitreeLinkTest : public ::testing::Test {
   }
 
   static std::unique_ptr<g1_bridge::UnitreeLink> link_;
+  static bool wrote_before_enable_;
   static std::unique_ptr<unitree::robot::ChannelPublisher<LowState_>>
       low_state_publisher_;
   static std::unique_ptr<unitree::robot::ChannelPublisher<Clock_>>
@@ -143,6 +146,7 @@ class UnitreeLinkTest : public ::testing::Test {
 };
 
 std::unique_ptr<g1_bridge::UnitreeLink> UnitreeLinkTest::link_;
+bool UnitreeLinkTest::wrote_before_enable_ = true;
 std::unique_ptr<unitree::robot::ChannelPublisher<LowState_>>
     UnitreeLinkTest::low_state_publisher_;
 std::unique_ptr<unitree::robot::ChannelPublisher<Clock_>>
@@ -248,6 +252,11 @@ TEST_F(UnitreeLinkTest, ForwardsSimulatorPelvisPose) {
   EXPECT_DOUBLE_EQ(pose->orientation_xyzw[1], 0.2);
   EXPECT_DOUBLE_EQ(pose->orientation_xyzw[2], 0.3);
   EXPECT_DOUBLE_EQ(pose->orientation_xyzw[3], 0.9);
+}
+
+// A link that only listens, like sim_relay_node's, has no rt/lowcmd writer.
+TEST_F(UnitreeLinkTest, RefusesLowCommandUntilEnabled) {
+  EXPECT_FALSE(wrote_before_enable_);
 }
 
 TEST_F(UnitreeLinkTest, WritesLowCommandWithItsCrc) {

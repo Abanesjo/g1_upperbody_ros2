@@ -5,12 +5,14 @@ import subprocess
 import time
 
 from ament_index_python.packages import get_package_prefix
+from builtin_interfaces.msg import Time
 from g1_cbf_msg.msg import WorkspaceState
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
+from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Bool
@@ -168,16 +170,19 @@ def _close(value, expected, tolerance=0.03):
     return math.isclose(value, expected, abs_tol=tolerance)
 
 
-def _start_orchestrator(initial_mode=None):
+def _start_orchestrator(initial_mode=None, parameters=()):
     executable = (
         Path(get_package_prefix('g1_bridge'))
         / 'lib' / 'g1_bridge' / 'g1_orchestrator_node'
     )
     command = [str(executable)]
+    arguments = list(parameters)
     if initial_mode is not None:
-        command.extend([
-            '--ros-args', '-p', f'initial_mode:={initial_mode}',
-        ])
+        arguments.append(f'initial_mode:={initial_mode}')
+    if arguments:
+        command.append('--ros-args')
+        for argument in arguments:
+            command.extend(['-p', argument])
     return subprocess.Popen(
         command,
         stdout=subprocess.DEVNULL,
@@ -501,5 +506,62 @@ def test_orchestrator_independent_cbf_gates_and_control_passthrough():
             len(probe.external_events),
             len(probe.workspace_request_events),
         )
+    finally:
+        _stop_orchestrator(probe, process)
+
+
+def _seconds(stamp):
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+def test_orchestrator_neutral_ramp_waits_for_sim_clock():
+    # Under simulation time the first /joint_states can arrive before the
+    # first /clock. The 3 s stand-up ramp must still start from the measured
+    # pose instead of ending at once.
+    os.environ['ROS_DOMAIN_ID'] = str(100 + os.getpid() % 100)
+    rclpy.init()
+    process = _start_orchestrator(parameters=['use_sim_time:=true'])
+    probe = OrchestratorProbe()
+    clock_pub = probe.create_publisher(Clock, '/clock', 1)
+    commands = []
+    probe.create_subscription(
+        JointState,
+        '/joint_commands_safe',
+        lambda msg: commands.append(
+            (_seconds(msg.header.stamp), msg.position[12])),
+        QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT),
+    )
+
+    state = JointState()
+    state.name = JOINT_NAMES
+    state.position = [0.2] * 12 + [1.5] * 17
+    start_sec = 500.0
+    waist_yaw = 12
+
+    try:
+        probe.wait_for(lambda: probe.orchestrator_state == 'neutral')
+        for _ in range(20):
+            probe.joint_state_pub.publish(state)
+            rclpy.spin_once(probe, timeout_sec=0.02)
+        assert not commands, 'commands published before the first /clock'
+
+        now = start_sec
+        while now < start_sec + 3.5:
+            clock = Clock()
+            clock.clock = Time(sec=int(now), nanosec=int((now % 1.0) * 1e9))
+            clock_pub.publish(clock)
+            probe.joint_state_pub.publish(state)
+            rclpy.spin_once(probe, timeout_sec=0.005)
+            now += 0.01
+        probe.wait_for(lambda: commands, timeout=1.0)
+
+        first_stamp, first_position = commands[0]
+        assert first_stamp >= start_sec
+        assert _close(first_position, 1.5, tolerance=0.1), commands[:5]
+        midway = min(
+            commands, key=lambda command: abs(command[0] - (start_sec + 1.5)))
+        assert _close(midway[1], 0.75, tolerance=0.15), midway
+        assert commands[-1][0] > start_sec + 3.0
+        assert _close(commands[-1][1], DEFAULT_POSITIONS[waist_yaw])
     finally:
         _stop_orchestrator(probe, process)

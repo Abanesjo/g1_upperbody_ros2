@@ -56,7 +56,12 @@ class UnitreeLink::Impl {
 
     unitree::robot::ChannelFactory::Instance()->Init(domain_id,
                                                      network_interface);
+  }
 
+  void EnableLowCommand() {
+    if (low_cmd_publisher_) {
+      return;
+    }
     low_cmd_publisher_ =
         std::make_unique<unitree::robot::ChannelPublisher<LowCmd_>>(
             LOW_CMD_TOPIC);
@@ -94,6 +99,9 @@ class UnitreeLink::Impl {
   }
 
   bool WriteLowCommand(const LowCommand &command) {
+    if (!low_cmd_publisher_) {
+      return false;
+    }
     LowCmd_ msg;
     msg.mode_pr() = command.mode_pr;
     msg.mode_machine() = command.mode_machine;
@@ -199,6 +207,8 @@ void UnitreeLink::SubscribeClock(ClockCallback callback) {
 void UnitreeLink::SubscribePelvisPose(PoseCallback callback) {
   impl_->SubscribePelvisPose(std::move(callback));
 }
+
+void UnitreeLink::EnableLowCommand() { impl_->EnableLowCommand(); }
 
 bool UnitreeLink::WriteLowCommand(const LowCommand &command) {
   return impl_->WriteLowCommand(command);

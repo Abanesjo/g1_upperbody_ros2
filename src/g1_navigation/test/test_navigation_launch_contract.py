@@ -105,6 +105,27 @@ def test_odom_simulation_keeps_its_independent_world_base_pelvis_tree():
 
     assert 'base_footprint_tf_publisher_node' in executables
     assert 'apriltag_localization_node' not in executables
+
+    # The simulator's clock and pelvis pose come from this launch, so it can
+    # run before the bringup.
+    relay = next(
+        node for node in nodes if node.attrib['exec'] == 'sim_relay_node')
+    assert relay.attrib['pkg'] == 'g1_bridge'
+    relay_params = {
+        param.attrib['name']: param.attrib['value']
+        for param in relay.findall('param')
+    }
+    assert relay_params == {
+        'network_interface': '$(var network_interface)',
+        'domain_id': '$(var domain_id)',
+        'use_sim_time': 'false',
+    }
+    args = {
+        arg.attrib['name']: arg.attrib.get('default')
+        for arg in root.findall('arg')
+    }
+    assert args['network_interface'] == 'lo'
+    assert args['domain_id'] == '0'
     static_frames = {
         _static_frames(node)
         for node in nodes
