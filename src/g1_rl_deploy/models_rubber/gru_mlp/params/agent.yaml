@@ -8,7 +8,7 @@ obs_groups:
   - critic
 save_interval: 100
 experiment_name: g1_vel_gru
-run_name: rubber_hand_policy
+run_name: rubber_hand_pd
 logger: wandb
 wandb_project: mjlab
 wandb_tags: !!python/tuple []
