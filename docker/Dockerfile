@@ -89,8 +89,6 @@ WORKDIR /workspace/dependencies/Livox-SDK2
 RUN mkdir build && cd build && cmake .. -DCMAKE_CXX_FLAGS="-include cstdint" && \
     cmake --build . && make install
 
-RUN mkdir -p /workspace/ros2_ws/srcf
-
 # Workspace setup
 WORKDIR /workspace/ros2_ws
 
