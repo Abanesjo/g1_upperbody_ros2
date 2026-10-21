@@ -139,15 +139,8 @@ class G1BridgeNode : public rclcpp::Node {
       const auto &name = JOINT_NAMES[i];
       joint_map_[name] = i;
 
-      std::string gain_name = name;
-      if (!wbc_ && name == "waist_roll_joint") {
-        gain_name = "waist_roll_joint_manual";
-      } else if (!wbc_ && name == "waist_pitch_joint") {
-        gain_name = "waist_pitch_joint_manual";
-      }
-
-      const auto kp_param = "gains." + gain_name + ".kp";
-      const auto kd_param = "gains." + gain_name + ".kd";
+      const auto kp_param = "gains." + name + ".kp";
+      const auto kd_param = "gains." + name + ".kd";
       this->declare_parameter<double>(kp_param, 100.0);
       this->declare_parameter<double>(kd_param, 3.0);
       gains_[i] = {

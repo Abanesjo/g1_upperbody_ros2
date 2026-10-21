@@ -55,7 +55,8 @@ g1_rl_deploy_node:
               2.13632, 1.8012, 2.0944, 1.67552, 0.0, 0.0, 0.0,
               2.13632, 1.27056, 2.0944, 1.67552, 0.0, 0.0, 0.0]
 
-    # Velocity command limits (the policy's training range)
+    # Velocity command limits: the deployment cap, inside the policy's training
+    # range (MJLab trains x -1..2, y +-1 m/s, yaw +-1 rad/s)
     cmd_vel_limits:
       lin_vel_x: [-0.5, 0.5]
       lin_vel_y: [-0.5, 0.5]
