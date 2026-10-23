@@ -33,7 +33,8 @@ g1_rl_deploy_node:
     policy_type: mlp #mlp or gru_mlp
     policy_paths:
       mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_rubber/mlp/policy.onnx
-      gru_mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_rubber/gru_mlp/policy.onnx
+      # IsaacLab PD-mode policy, for wbc:=false; models_isaaclab/gru_mlp_policy/policy.onnx is the wbc:=true one
+      gru_mlp: /workspace/ros2_ws/install/g1_rl_deploy/share/g1_rl_deploy/models_isaaclab/gru_mlp_pd/policy.onnx
 
     # Timing
     control_dt: 0.02        # 50 Hz policy inference
