@@ -35,6 +35,7 @@ class WorkspaceCaptureState:
 
     x: float = 0.0
     y: float = 0.0
+    yaw: float = 0.0
     enabled: bool = False
     generation: int = 0
     pending: bool = False
@@ -60,7 +61,7 @@ class WorkspaceCaptureState:
         return True
 
     def try_capture(self, pose, age_sec, stale_timeout_sec):
-        """Commit a valid, fresh pelvis XY pose as a new generation."""
+        """Commit a valid, fresh pelvis XY and heading as a new generation."""
         if not self.pending:
             return False, 'no workspace capture is pending'
 
@@ -80,10 +81,17 @@ class WorkspaceCaptureState:
 
         self.x = float(pose.position[0])
         self.y = float(pose.position[1])
+        self.yaw = planar_yaw(pose.quat)
         self.generation += 1
         self.enabled = True
         self.pending = False
         return True, ''
+
+
+def planar_yaw(quat):
+    """Heading about world Z of an ``(x, y, z, w)`` quaternion."""
+    x, y, z, w = (float(value) for value in quat)
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
 def workspace_transform(state):
@@ -94,8 +102,8 @@ def workspace_transform(state):
     transform.translation.z = 0.0
     transform.rotation.x = 0.0
     transform.rotation.y = 0.0
-    transform.rotation.z = 0.0
-    transform.rotation.w = 1.0
+    transform.rotation.z = math.sin(0.5 * state.yaw)
+    transform.rotation.w = math.cos(0.5 * state.yaw)
     return transform
 
 
@@ -251,7 +259,8 @@ class WorkspaceManagerNode(Node):
         self._broadcast_transform()
         self.get_logger().info(
             f'Workspace generation {self._capture.generation} captured at '
-            f'world XY=({self._capture.x:.3f}, {self._capture.y:.3f})'
+            f'world XY=({self._capture.x:.3f}, {self._capture.y:.3f}), '
+            f'yaw={math.degrees(self._capture.yaw):.1f} deg'
         )
 
     def _publish_state(self):

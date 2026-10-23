@@ -98,7 +98,7 @@ ros2 launch g1_human g1_human_manual.launch.xml                           # simu
 | button 4 (LB) | enter `damp` (kill switch) | `g1_bridge/src/g1_orchestrator_node.cpp` |
 | button 5 (RB) | toggle `neutral` / `control` | same |
 | button 2 | toggle the human-collision CBF (`control` only) | same |
-| button 3 | toggle the workspace CBF, capturing the current pelvis XY as its centre (`control` only) | same |
+| button 3 | toggle the workspace CBF, capturing the current pelvis XY as its centre and the pelvis heading as its x axis (`control` only) | same |
 | button 0 | toggle return-to-centre | `g1_cbf/scripts/workspace_cmd_vel_node.py` |
 | button 1 | toggle rectangle-path following | same |
 | buttons 9 / 10 | stop / start CSV playback | `g1_rl_deploy/scripts/motion_playback.py` |
@@ -121,7 +121,7 @@ Human avoidance, the workspace circle and path following need the TF `world → 
 - `apriltag_localization.launch.xml` (hardware): an externally tracked tag pose on `/pose/tag_frame`, composed with the URDF's `tag_mount_frame ← pelvis` at the same timestamp. `tag_mount_frame` exists in the three `g1_29_<hand_type>.urdf` files but not in `g1_29dof.urdf`.
 - `rtabmap.launch.xml` (hardware): ICP odometry from the Livox MID-360.
 
-`workspace_manager_node` adds `world → workspace`. When the workspace CBF is requested it captures the pelvis XY as the origin and increments `generation` in the latched `/cbf/workspace_state`; `workspace_cmd_vel_node` restarts its path when the generation changes. `/human/colliders` (`g1_cbf_msg/CapsuleArray`, at most 11 capsules) may arrive in any TF frame and is transformed to `world` at its stamp.
+`workspace_manager_node` adds `world → workspace`. When the workspace CBF is requested it captures the pelvis XY as the origin and the pelvis heading (yaw only, roll and pitch dropped) as the frame's x axis, and increments `generation` in the latched `/cbf/workspace_state`. `workspace_cmd_vel_node` works in the `workspace` frame, so the rectangle path starts straight ahead of the robot and return-to-centre turns it back to the captured heading; it restarts its path when the generation changes. The CBF nodes read only the translation, since the workspace is a circle. `/human/colliders` (`g1_cbf_msg/CapsuleArray`, at most 11 capsules) may arrive in any TF frame and is transformed to `world` at its stamp.
 
 ### Conventions that are easy to break
 

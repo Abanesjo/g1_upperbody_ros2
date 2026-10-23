@@ -16,6 +16,7 @@ SPEC = importlib.util.spec_from_file_location(
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 WorkspaceCaptureState = MODULE.WorkspaceCaptureState
+planar_yaw = MODULE.planar_yaw
 workspace_transform = MODULE.workspace_transform
 
 
@@ -42,7 +43,7 @@ def test_initial_state_is_disabled_identity_generation_zero():
     assert transform.rotation.w == 1.0
 
 
-def test_capture_uses_only_pelvis_xy_and_increments_generation():
+def test_capture_uses_pelvis_xy_and_heading_and_increments_generation():
     state = WorkspaceCaptureState()
     state.request_enable(now=10.0, retry_timeout_sec=0.5)
     assert not state.enabled
@@ -63,7 +64,10 @@ def test_capture_uses_only_pelvis_xy_and_increments_generation():
     assert transform.translation.x == 3.5
     assert transform.translation.y == -1.25
     assert transform.translation.z == 0.0
-    assert transform.rotation.w == 1.0
+    assert transform.rotation.x == 0.0
+    assert transform.rotation.y == 0.0
+    assert transform.rotation.z == pytest.approx(math.sin(0.5 * state.yaw))
+    assert transform.rotation.w == pytest.approx(math.cos(0.5 * state.yaw))
 
     state.request_disable()
     assert not state.enabled
@@ -83,6 +87,42 @@ def test_capture_uses_only_pelvis_xy_and_increments_generation():
     assert state.enabled
     assert not state.pending
     assert (state.x, state.y, state.generation) == (-2.0, 4.0, 2)
+    assert state.yaw == 0.0
+
+
+def _quat_from_rpy(roll, pitch, yaw):
+    cr, sr = math.cos(0.5 * roll), math.sin(0.5 * roll)
+    cp, sp = math.cos(0.5 * pitch), math.sin(0.5 * pitch)
+    cy, sy = math.cos(0.5 * yaw), math.sin(0.5 * yaw)
+    return (
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    )
+
+
+@pytest.mark.parametrize('yaw', [0.0, 0.7, -2.0, math.pi / 2, 3.1])
+def test_capture_aligns_workspace_with_pelvis_heading_ignoring_tilt(yaw):
+    state = WorkspaceCaptureState()
+    state.request_enable(now=0.0, retry_timeout_sec=0.5)
+
+    captured, reason = state.try_capture(
+        _pose(quat=_quat_from_rpy(0.1, -0.15, yaw)),
+        age_sec=0.0,
+        stale_timeout_sec=0.2,
+    )
+
+    assert captured, reason
+    assert state.yaw == pytest.approx(yaw)
+    transform = workspace_transform(state)
+    assert (transform.rotation.x, transform.rotation.y) == (0.0, 0.0)
+    assert math.atan2(
+        2.0 * transform.rotation.w * transform.rotation.z,
+        1.0 - 2.0 * transform.rotation.z ** 2,
+    ) == pytest.approx(yaw)
+    assert planar_yaw((0.0, 0.0, transform.rotation.z,
+                       transform.rotation.w)) == pytest.approx(yaw)
 
 
 @pytest.mark.parametrize(
@@ -113,6 +153,7 @@ def test_invalid_or_stale_pose_is_retried_without_changing_transform(
     assert state.pending
     assert not state.enabled
     assert (state.x, state.y, state.generation) == (7.0, 8.0, 4)
+    assert state.yaw == 0.0
 
 
 def test_timeout_requires_a_new_true_request_and_false_cancels():
