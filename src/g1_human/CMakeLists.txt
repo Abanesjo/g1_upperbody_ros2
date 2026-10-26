@@ -19,5 +19,17 @@ install(PROGRAMS
   RENAME human_control_gui
   DESTINATION lib/${PROJECT_NAME}
 )
+install(PROGRAMS
+  scripts/skeleton_viz_node.py
+  RENAME skeleton_viz_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_skeleton_markers
+    test/test_skeleton_markers.py
+  )
+endif()
 
 ament_package()

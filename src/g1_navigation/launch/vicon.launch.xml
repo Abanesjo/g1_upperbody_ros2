@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Hardware localization from Vicon motion capture. Mutually exclusive
+         with AprilTag localization, RTAB-Map and odometry simulation.
+         Publishes TF world -> pelvis, /pose/pelvis and /odom for the
+         bringup launches, which must run with use_sim_time:=false, and
+         (zed_anchor) a static world -> fusion_world for the ZED skeletons. -->
+    <arg name="vicon_client" default="true" description="Start vicon_receiver here; set false if it already runs elsewhere"/>
+    <arg name="hostname" default="10.42.0.123" description="Vicon server (Tracker/Nexus) address"/>
+    <arg name="vicon_pose_topic" default="/vicon/unitree_g1/unitree_g1" description="vicon_receiver topic /vicon/SUBJECT/SEGMENT"/>
+    <arg name="vicon_child_frame" default="unitree_g1_unitree_g1" description="Frame name of the subject (SUBJECT_SEGMENT), as vicon_receiver broadcasts it on /vicon/tf"/>
+    <arg name="world_frame" default="world"/>
+    <arg name="vicon_frame" default="vicon"/>
+    <arg name="pelvis_frame" default="pelvis"/>
+
+    <!-- Where the Vicon subject's origin and axes sit on the robot, as a
+         fixed transform from a URDF link. It must match how the subject was
+         defined in Vicon Tracker. The default takes the subject pose to be
+         the torso_link frame, so the pelvis follows through the measured
+         waist joints. -->
+    <arg name="mount_parent_frame" default="torso_link" description="URDF link the Vicon subject is rigidly attached to"/>
+    <arg name="mount_frame" default="vicon_mount_frame"/>
+    <arg name="mount_x" default="0.0"/>
+    <arg name="mount_y" default="0.0"/>
+    <arg name="mount_z" default="0.0"/>
+    <arg name="mount_roll" default="0.0"/>
+    <arg name="mount_pitch" default="0.0"/>
+    <arg name="mount_yaw" default="0.0"/>
+    <arg name="use_sim_time" default="false"/>
+
+    <!-- ZED fusion frame. zedx_driver_ros2 publishes skeletons and
+         /human/colliders in fusion_world, with static TFs
+         fusion_world -> <camera>_left_camera_optical_frame. One camera is
+         also a Vicon subject whose origin and axes are its left optical frame
+         (z forward, x right, y down), up to the zed_mount_* offset (pose of
+         the optical frame in the subject frame). After averaging the subject
+         pose the anchor node publishes, once,
+           world <- fusion_world = (world <- subject) (subject <- optical)
+                                   (fusion_world <- optical)^-1
+         A frame has one parent, so the camera frames stay under
+         fusion_world. To anchor on the other ZED Mini:
+         zed_camera_pose_topic:=/vicon/zed_10026981/zed_10026981
+         zed_camera_frame:=zed_left_left_camera_optical_frame -->
+    <arg name="zed_anchor" default="true" description="Publish world -> fusion_world from a Vicon-tracked ZED camera and draw the ZED skeletons"/>
+    <arg name="zed_camera_pose_topic" default="/vicon/zed_10025986/zed_10025986"/>
+    <arg name="zed_camera_frame" default="zed_right_left_camera_optical_frame"/>
+    <arg name="fusion_frame" default="fusion_world"/>
+    <arg name="zed_mount_x" default="0.0"/>
+    <arg name="zed_mount_y" default="0.0"/>
+    <arg name="zed_mount_z" default="0.0"/>
+    <arg name="zed_mount_roll" default="0.0"/>
+    <arg name="zed_mount_pitch" default="0.0"/>
+    <arg name="zed_mount_yaw" default="0.0"/>
+
+    <!-- Publishes PoseStamped in world_frame (metres, stamped with its own
+         clock), static TF world_frame -> vicon_frame, and TF
+         vicon_frame -> SUBJECT_SEGMENT for every subject. Occluded subjects
+         get NaN transforms, which every TF listener would log at the Vicon
+         rate, so that dynamic TF goes to /vicon/tf instead of /tf. -->
+    <group if="$(var vicon_client)">
+        <set_remap from="/tf" to="/vicon/tf"/>
+        <include file="$(find-pkg-share vicon_receiver)/launch/client.launch.py">
+            <arg name="hostname" value="$(var hostname)"/>
+            <arg name="world_frame" value="$(var world_frame)"/>
+            <arg name="vicon_frame" value="$(var vicon_frame)"/>
+        </include>
+    </group>
+
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="vicon_mount_frame_publisher"
+        args="--x $(var mount_x) --y $(var mount_y) --z $(var mount_z) --roll $(var mount_roll) --pitch $(var mount_pitch) --yaw $(var mount_yaw) --frame-id $(var mount_parent_frame) --child-frame-id $(var mount_frame)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- world <- pelvis = (world <- Vicon subject) (mount_frame <- pelvis),
+         with the kinematics evaluated at the Vicon stamp. -->
+    <include file="$(find-pkg-share g1_navigation)/launch/apriltag_localization.launch.xml">
+        <arg name="tag_pose_topic" value="$(var vicon_pose_topic)"/>
+        <arg name="world_frame" value="$(var world_frame)"/>
+        <arg name="detected_tag_frame" value="$(var vicon_child_frame)"/>
+        <arg name="tag_mount_frame" value="$(var mount_frame)"/>
+        <arg name="pelvis_frame" value="$(var pelvis_frame)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <group if="$(var zed_anchor)">
+        <node pkg="g1_navigation" exec="fusion_world_anchor_node"
+            name="fusion_world_anchor_node" output="screen">
+            <param name="camera_pose_topic" value="$(var zed_camera_pose_topic)"/>
+            <param name="world_frame" value="$(var world_frame)"/>
+            <param name="fusion_frame" value="$(var fusion_frame)"/>
+            <param name="camera_frame" value="$(var zed_camera_frame)"/>
+            <param name="mount_x" value="$(var zed_mount_x)"/>
+            <param name="mount_y" value="$(var zed_mount_y)"/>
+            <param name="mount_z" value="$(var zed_mount_z)"/>
+            <param name="mount_roll" value="$(var zed_mount_roll)"/>
+            <param name="mount_pitch" value="$(var zed_mount_pitch)"/>
+            <param name="mount_yaw" value="$(var zed_mount_yaw)"/>
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+        </node>
+
+        <!-- The fused skeletons as /human/skeleton_markers, so RViz shows
+             them in world without the Stereolabs ZED RViz plugin. -->
+        <node pkg="g1_human" exec="skeleton_viz_node"
+            name="skeleton_viz_node" output="screen">
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+        </node>
+    </group>
+</launch>

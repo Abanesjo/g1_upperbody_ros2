@@ -29,6 +29,11 @@ install(PROGRAMS
   RENAME apriltag_localization_node
   DESTINATION lib/${PROJECT_NAME}
 )
+install(PROGRAMS
+  scripts/fusion_world_anchor_node.py
+  RENAME fusion_world_anchor_node
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 install(
   DIRECTORY launch
@@ -41,6 +46,9 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_apriltag_localization
     test/test_apriltag_localization.py
+  )
+  ament_add_pytest_test(test_fusion_world_anchor
+    test/test_fusion_world_anchor.py
   )
   ament_add_pytest_test(test_navigation_launch_contract
     test/test_navigation_launch_contract.py

@@ -7,11 +7,15 @@ import xml.etree.ElementTree as ET
 PACKAGE_ROOT = Path(__file__).parents[1]
 APRILTAG_LAUNCH = PACKAGE_ROOT / 'launch' / 'apriltag_localization.launch.xml'
 ODOM_LAUNCH = PACKAGE_ROOT / 'launch' / 'odom_simulation.launch.xml'
+VICON_LAUNCH = PACKAGE_ROOT / 'launch' / 'vicon.launch.xml'
 ODOM_NODE = (
     PACKAGE_ROOT / 'scripts' / 'base_footprint_tf_publisher_node.py'
 )
 APRILTAG_NODE = (
     PACKAGE_ROOT / 'scripts' / 'apriltag_localization_node.py'
+)
+ANCHOR_NODE = (
+    PACKAGE_ROOT / 'scripts' / 'fusion_world_anchor_node.py'
 )
 CMAKE_PATH = PACKAGE_ROOT / 'CMakeLists.txt'
 
@@ -85,6 +89,96 @@ def test_apriltag_launch_exposes_exact_time_localization_contract():
     source = APRILTAG_LAUNCH.read_text()
     assert 'livox' not in source.lower()
     assert 'publish_rate_hz' not in source
+
+
+def test_vicon_launch_localizes_pelvis_through_torso_mount():
+    root = ET.parse(VICON_LAUNCH).getroot()
+    args = _arguments(root)
+    assert args['vicon_pose_topic'] == '/vicon/unitree_g1/unitree_g1'
+    assert args['world_frame'] == 'world'
+    assert args['pelvis_frame'] == 'pelvis'
+    assert args['mount_parent_frame'] == 'torso_link'
+    assert args['use_sim_time'] == 'false'
+
+    static = root.find('node')
+    assert static.attrib['exec'] == 'static_transform_publisher'
+    assert static.attrib['args'].endswith(
+        '--frame-id $(var mount_parent_frame) '
+        '--child-frame-id $(var mount_frame)')
+
+    includes = {
+        Path(include.attrib['file']).name: {
+            arg.attrib['name']: arg.attrib['value']
+            for arg in include.findall('arg')
+        }
+        for include in root.iter('include')
+    }
+    assert includes['client.launch.py']['world_frame'] == (
+        '$(var world_frame)')
+    # Occluded subjects are NaN transforms; keep them off the shared /tf.
+    remap = root.find('group/set_remap')
+    assert remap.attrib == {'from': '/tf', 'to': '/vicon/tf'}
+    assert includes['apriltag_localization.launch.xml'] == {
+        'tag_pose_topic': '$(var vicon_pose_topic)',
+        'world_frame': '$(var world_frame)',
+        'detected_tag_frame': '$(var vicon_child_frame)',
+        'tag_mount_frame': '$(var mount_frame)',
+        'pelvis_frame': '$(var pelvis_frame)',
+        'use_sim_time': '$(var use_sim_time)',
+    }
+
+
+def test_vicon_launch_anchors_fusion_world_on_one_camera():
+    root = ET.parse(VICON_LAUNCH).getroot()
+    args = _arguments(root)
+    assert args['zed_anchor'] == 'true'
+    assert args['zed_camera_pose_topic'] == '/vicon/zed_10025986/zed_10025986'
+    assert args['zed_camera_frame'] == 'zed_right_left_camera_optical_frame'
+    assert args['fusion_frame'] == 'fusion_world'
+    mount = ('x', 'y', 'z', 'roll', 'pitch', 'yaw')
+    for name in mount:
+        assert args[f'zed_mount_{name}'] == '0.0'
+
+    groups = [
+        group for group in root.findall('group')
+        if group.attrib.get('if') == '$(var zed_anchor)'
+    ]
+    assert len(groups) == 1
+    nodes = {node.attrib['exec']: node for node in groups[0].findall('node')}
+    assert set(nodes) == {'fusion_world_anchor_node', 'skeleton_viz_node'}
+    assert nodes['skeleton_viz_node'].attrib['pkg'] == 'g1_human'
+    assert _parameters(nodes['skeleton_viz_node']) == {
+        'use_sim_time': '$(var use_sim_time)',
+    }
+    node = nodes['fusion_world_anchor_node']
+    assert node.attrib == {
+        'pkg': 'g1_navigation',
+        'exec': 'fusion_world_anchor_node',
+        'name': 'fusion_world_anchor_node',
+        'output': 'screen',
+    }
+    expected = {
+        'camera_pose_topic': '$(var zed_camera_pose_topic)',
+        'world_frame': '$(var world_frame)',
+        'fusion_frame': '$(var fusion_frame)',
+        'camera_frame': '$(var zed_camera_frame)',
+        'use_sim_time': '$(var use_sim_time)',
+    }
+    expected.update({
+        f'mount_{name}': f'$(var zed_mount_{name})' for name in mount
+    })
+    assert _parameters(node) == expected
+
+
+def test_anchor_executable_is_installable_and_thin():
+    assert os.access(ANCHOR_NODE, os.X_OK)
+    assert ANCHOR_NODE.read_text().splitlines()[-2:] == [
+        "if __name__ == '__main__':",
+        '    main()',
+    ]
+    cmake = CMAKE_PATH.read_text()
+    assert 'scripts/fusion_world_anchor_node.py' in cmake
+    assert 'RENAME fusion_world_anchor_node' in cmake
 
 
 def test_apriltag_executable_is_installable_and_thin():
