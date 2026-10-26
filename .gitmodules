@@ -24,4 +24,4 @@
 	url = https://github.com/realsenseai/realsense-ros
 [submodule "src/ros2-vicon-receiver"]
 	path = src/ros2-vicon-receiver
-	url = https://github.com/OPT4SMART/ros2-vicon-receiver
+	url = https://github.com/Abanesjo/ros2-vicon-receiver

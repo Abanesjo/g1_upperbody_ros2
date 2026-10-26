@@ -70,7 +70,7 @@
          vicon_frame -> SUBJECT_SEGMENT for every subject. Occluded subjects
          used to get NaN (or zero) transforms, which every TF listener would
          log at the Vicon rate, so that dynamic TF goes to /vicon/tf instead
-         of /tf. The locally patched receiver now skips occluded segments. -->
+         of /tf. The receiver (our fork) now skips occluded segments. -->
     <group if="$(var vicon_client)">
         <set_remap from="/tf" to="/vicon/tf"/>
         <include file="$(find-pkg-share vicon_receiver)/launch/client.launch.py">
