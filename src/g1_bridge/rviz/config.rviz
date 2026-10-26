@@ -1,6 +1,6 @@
 Panels:
   - Class: rviz_common/Displays
-    Help Height: 78
+    Help Height: 138
     Name: Displays
     Property Tree Widget:
       Expanded:
@@ -16,8 +16,11 @@ Panels:
         - /Collision Distances1/Namespaces1
         - /Obstacle Markers1
         - /Odometry1/Shape1
+        - /TF1/Frames1
+        - /Image2
+        - /Image2/Topic1
       Splitter Ratio: 0.5
-    Tree Height: 1080
+    Tree Height: 1515
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -107,46 +110,6 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        left_hand_index_0_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_index_1_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_middle_0_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_middle_1_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_palm_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_thumb_0_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_thumb_1_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_hand_thumb_2_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         left_hip_pitch_link:
           Alpha: 1
           Show Axes: false
@@ -163,6 +126,11 @@ Visualization Manager:
           Show Trail: false
           Value: true
         left_knee_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_rubber_hand:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -231,46 +199,6 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        right_hand_index_0_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_index_1_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_middle_0_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_middle_1_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_palm_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_thumb_0_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_thumb_1_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_hand_thumb_2_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         right_hip_pitch_link:
           Alpha: 1
           Show Axes: false
@@ -287,6 +215,11 @@ Visualization Manager:
           Show Trail: false
           Value: true
         right_knee_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_rubber_hand:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -428,7 +361,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        {}
+        human_colliders: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -450,6 +383,8 @@ Visualization Manager:
         Value: /pelvis_circle
       Value: true
     - Alpha: 0.699999988079071
+      Binary representation: false
+      Binary threshold: 100
       Class: rviz_default_plugins/Map
       Color Scheme: map
       Draw Behind: false
@@ -497,7 +432,6 @@ Visualization Manager:
       Topic:
         Depth: 5
         Durability Policy: Volatile
-        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rtabmap/odom_filtered_input_scan
@@ -564,7 +498,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 100
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -585,6 +519,63 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /odom
+      Value: false
+    - Class: rviz_default_plugins/TF
+      Enabled: false
+      Filter (blacklist): ""
+      Filter (whitelist): ""
+      Frame Timeout: 15
+      Frames:
+        All Enabled: false
+      Marker Scale: 1
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Tree:
+        {}
+      Update Interval: 0
+      Value: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        skeleton_bones: true
+        skeleton_joints: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /human/skeleton_markers
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /zed_left/zed_node/rgb/color/rect/body_tracking_overlay
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /zed_right/zed_node/rgb/color/rect/body_tracking_overlay
       Value: true
   Enabled: true
   Global Options:
@@ -632,35 +623,35 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/XYOrbit
-      Distance: 9.486215591430664
+      Distance: 3.714517116546631
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 4.186331748962402
-        Y: -0.1073753833770752
-        Z: 4.890603122476023e-06
+        X: 0.6629843711853027
+        Y: -0.17824643850326538
+        Z: 6.246978955459781e-06
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5447968244552612
+      Pitch: 0.514798641204834
       Target Frame: <Fixed Frame>
       Value: XYOrbit (rviz_default_plugins)
-      Yaw: 0.17001238465309143
+      Yaw: 1.3481934070587158
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: true
-  Height: 1371
-  Hide Left Dock: true
-  Hide Right Dock: true
+    collapsed: false
+  Height: 1992
+  Hide Left Dock: false
+  Hide Right Dock: false
   Image:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000400000000000002c1000004c1fc0200000008fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001e800000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073000000003b000004c1000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261000000010000010f000004c1fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b000004c1000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000044500000162fc0100000002fb0000000a0049006d0061006700650000000000000004450000005a00fffffffb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004df0000003efc0100000002fb0000000800540069006d00650100000000000004df0000025300fffffffb0000000800540069006d00650100000000000004500000000000000000000004df000004c100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000400000000000002c2000006d9fc0200000008fb0000001200530065006c0065006300740069006f006e00000001e10000009b000000ab00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001e800000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c0061007900730100000069000006d90000017800fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c0000026100000001000003b0000006d9fc0200000005fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a0049006d00610067006501000000690000030b0000002100fffffffb0000000a0049006d0061006700650100000380000002930000002100fffffffb0000000a00560069006500770073010000061f000001230000012300fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000044500000162fc0100000002fb0000000a0049006d0061006700650000000000000004450000008c00fffffffb0000000a00560069006500770073030000004e00000080000002e1000001970000000300000cbf00000051fc0100000002fb0000000800540069006d0065010000000000000cbf0000046000fffffffb0000000800540069006d0065010000000000000450000000000000000000000635000006d900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:
@@ -668,7 +659,7 @@ Window Geometry:
   Tool Properties:
     collapsed: false
   Views:
-    collapsed: true
-  Width: 1247
-  X: 1313
-  Y: 192
+    collapsed: false
+  Width: 3263
+  X: 132
+  Y: 64

@@ -224,7 +224,7 @@ def test_noncommuting_se3_composition_preserves_all_axes():
 
 def test_pose_and_kinematics_are_normalized_and_validated():
     tag = normalized_pose(
-        _pose(quaternion=(0.0, 0.0, 0.0, -2.0)),
+        _pose(quaternion=(0.0, 0.0, 0.0, -1.005)),
         'world',
     )
     mount = _kinematics(quaternion=(0.0, 0.0, 3.0, 3.0))
@@ -249,6 +249,22 @@ def test_pose_and_kinematics_are_normalized_and_validated():
             world_frame='world',
             tag_mount_frame='tag_mount_frame',
             pelvis_frame='pelvis',
+        )
+
+
+@pytest.mark.parametrize(
+    'quaternion',
+    [
+        # What vicon_receiver published for an occluded subject.
+        (0.0, 0.0, 0.5, 0.0),
+        (0.0, 0.0, 0.0, 2.0),
+    ],
+)
+def test_pose_with_non_unit_quaternion_is_rejected(quaternion):
+    with pytest.raises(ValueError, match='not 1'):
+        normalized_pose(
+            _pose(translation=(0.0, 0.0, 0.0), quaternion=quaternion),
+            'world',
         )
 
 
@@ -377,7 +393,7 @@ def test_event_callback_looks_up_exact_stamp_and_publishes_matching_outputs():
     ])
     tag = _pose(
         translation=(1.0, 2.0, 3.0),
-        quaternion=(0.0, 0.0, 0.0, 2.0),
+        quaternion=(0.0, 0.0, 0.0, 1.0),
     )
 
     node._pose_callback(tag)

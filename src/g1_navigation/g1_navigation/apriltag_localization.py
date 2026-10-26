@@ -59,6 +59,10 @@ DEFAULT_TWIST_MAX_ROTATION_STEP_RAD = math.radians(45.0)
 UNKNOWN_VARIANCE = 1.0e6
 WARNING_THROTTLE_SEC = 2.0
 MIN_QUATERNION_NORM = 1.0e-12
+# Measured orientations are unit quaternions to float precision. A larger error
+# means bad data: vicon_receiver used to publish occluded subjects as a zero
+# translation with the quaternion (0, 0, 0.5, 0).
+MAX_POSE_QUATERNION_NORM_ERROR = 0.01
 
 Vector3 = Tuple[float, float, float]
 Quaternion = Tuple[float, float, float, float]
@@ -251,7 +255,14 @@ def normalized_pose(
     translation = _vector(source.pose.position)
     if not all(math.isfinite(value) for value in translation):
         raise ValueError('tag pose position contains non-finite values')
-    quaternion = normalize_quaternion(_quaternion(source.pose.orientation))
+    raw_quaternion = _quaternion(source.pose.orientation)
+    quaternion = normalize_quaternion(raw_quaternion)
+    norm = math.sqrt(sum(value * value for value in raw_quaternion))
+    if abs(norm - 1.0) > MAX_POSE_QUATERNION_NORM_ERROR:
+        raise ValueError(
+            f'tag pose quaternion norm is {norm:.3f}, not 1; '
+            'rejecting it as invalid (occluded Vicon subject?)'
+        )
 
     result = PoseStamped()
     result.header.stamp = source.header.stamp

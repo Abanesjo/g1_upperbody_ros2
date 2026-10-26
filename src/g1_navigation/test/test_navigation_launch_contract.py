@@ -132,12 +132,18 @@ def test_vicon_launch_anchors_fusion_world_on_one_camera():
     root = ET.parse(VICON_LAUNCH).getroot()
     args = _arguments(root)
     assert args['zed_anchor'] == 'true'
-    assert args['zed_camera_pose_topic'] == '/vicon/zed_10025986/zed_10025986'
+    # Our Vicon subjects are named after the wrong cameras: the subject
+    # zed_10026981 is on camera 10025986 (zed_right).
+    assert args['zed_camera_pose_topic'] == '/vicon/zed_10026981/zed_10026981'
     assert args['zed_camera_frame'] == 'zed_right_left_camera_optical_frame'
     assert args['fusion_frame'] == 'fusion_world'
     mount = ('x', 'y', 'z', 'roll', 'pitch', 'yaw')
-    for name in mount:
-        assert args[f'zed_mount_{name}'] == '0.0'
+    # Optical subject axes -> zedx's x-forward, z-up camera frame.
+    assert {name: args[f'zed_mount_{name}'] for name in mount} == {
+        'x': '0.0', 'y': '0.0', 'z': '0.0',
+        'roll': '1.5707963267948966', 'pitch': '-1.5707963267948966',
+        'yaw': '0.0',
+    }
 
     groups = [
         group for group in root.findall('group')

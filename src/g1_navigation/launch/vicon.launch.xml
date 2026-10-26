@@ -31,32 +31,46 @@
     <!-- ZED fusion frame. zedx_driver_ros2 publishes skeletons and
          /human/colliders in fusion_world, with static TFs
          fusion_world -> <camera>_left_camera_optical_frame. One camera is
-         also a Vicon subject whose origin and axes are its left optical frame
-         (z forward, x right, y down), up to the zed_mount_* offset (pose of
-         the optical frame in the subject frame). After averaging the subject
-         pose the anchor node publishes, once,
-           world <- fusion_world = (world <- subject) (subject <- optical)
-                                   (fusion_world <- optical)^-1
+         also a Vicon subject; after averaging its pose the anchor node
+         publishes, once,
+           world <- fusion_world = (world <- subject) (subject <- camera)
+                                   (fusion_world <- camera)^-1
          A frame has one parent, so the camera frames stay under
-         fusion_world. To anchor on the other ZED Mini:
-         zed_camera_pose_topic:=/vicon/zed_10026981/zed_10026981
-         zed_camera_frame:=zed_left_left_camera_optical_frame -->
+         fusion_world. When calibration/zedm/calibration.json was generated
+         from these Vicon poses, the result is close to identity.
+
+         zed_camera_pose_topic: the Vicon subject on the camera named by
+         zed_camera_frame. Replace it with your own subject's topic. In our
+         Vicon Tracker the subjects are named after the wrong cameras: the
+         subject zed_10026981 is on camera 10025986 (zed_right) and
+         zed_10025986 is on camera 10026981 (zed_left). To anchor on the other
+         camera here: zed_camera_pose_topic:=/vicon/zed_10025986/zed_10025986
+         zed_camera_frame:=zed_left_left_camera_optical_frame
+
+         zed_mount_*: pose of the zedx camera frame in the Vicon subject
+         frame (static_transform_publisher roll/pitch/yaw). Our subjects'
+         origins and axes are the left lens optical frame (z forward, x right,
+         y down). Despite its name, zedx's <camera>_left_camera_optical_frame
+         uses the ZED SDK's RIGHT_HANDED_Z_UP_X_FWD axes (x forward, y left,
+         z up), so the default rotation (pi/2, -pi/2, 0) maps optical axes to
+         those. For a subject defined with x forward, z up, use all zeros. -->
     <arg name="zed_anchor" default="true" description="Publish world -> fusion_world from a Vicon-tracked ZED camera and draw the ZED skeletons"/>
-    <arg name="zed_camera_pose_topic" default="/vicon/zed_10025986/zed_10025986"/>
+    <arg name="zed_camera_pose_topic" default="/vicon/zed_10026981/zed_10026981"/>
     <arg name="zed_camera_frame" default="zed_right_left_camera_optical_frame"/>
     <arg name="fusion_frame" default="fusion_world"/>
     <arg name="zed_mount_x" default="0.0"/>
     <arg name="zed_mount_y" default="0.0"/>
     <arg name="zed_mount_z" default="0.0"/>
-    <arg name="zed_mount_roll" default="0.0"/>
-    <arg name="zed_mount_pitch" default="0.0"/>
+    <arg name="zed_mount_roll" default="1.5707963267948966"/>
+    <arg name="zed_mount_pitch" default="-1.5707963267948966"/>
     <arg name="zed_mount_yaw" default="0.0"/>
 
     <!-- Publishes PoseStamped in world_frame (metres, stamped with its own
          clock), static TF world_frame -> vicon_frame, and TF
          vicon_frame -> SUBJECT_SEGMENT for every subject. Occluded subjects
-         get NaN transforms, which every TF listener would log at the Vicon
-         rate, so that dynamic TF goes to /vicon/tf instead of /tf. -->
+         used to get NaN (or zero) transforms, which every TF listener would
+         log at the Vicon rate, so that dynamic TF goes to /vicon/tf instead
+         of /tf. The locally patched receiver now skips occluded segments. -->
     <group if="$(var vicon_client)">
         <set_remap from="/tf" to="/vicon/tf"/>
         <include file="$(find-pkg-share vicon_receiver)/launch/client.launch.py">
