@@ -210,8 +210,8 @@ def test_workspace_to_body_supports_holonomic_motion():
     assert body == pytest.approx([0.2, -0.5])
 
 
-def test_center_command_clips_forward_and_reverse_separately():
-    node = SimpleNamespace(
+def _center_node(goal_facing=False):
+    return SimpleNamespace(
         get_clock=lambda: SimpleNamespace(now=lambda: None),
         _last_center_time=None,
         _center_position_deadzone=0.05,
@@ -220,22 +220,99 @@ def test_center_command_clips_forward_and_reverse_separately():
         _center_yaw_deadzone=math.radians(15.0),
         _center_kp_yaw=1.0,
         _center_kd_yaw=0.05,
+        _goal_facing=goal_facing,
         _max_linear_x=1.0,
         _max_reverse_x=0.5,
         _max_linear_y=0.5,
         _max_angular_z=1.0,
     )
 
+
+def _center_command(node, x, y, yaw):
+    return _MODULE.WorkspaceCmdVelNode._center_command(
+        node, np.array([x, y]), yaw
+    )
+
+
+def test_center_command_clips_forward_and_reverse_separately():
+    node = _center_node()
+
     # The centre is 5 m ahead, then 5 m behind: the P term asks for 2.5 m/s.
-    ahead = _MODULE.WorkspaceCmdVelNode._center_command(
-        node, np.array([-5.0, 0.0]), 0.0
-    )
-    behind = _MODULE.WorkspaceCmdVelNode._center_command(
-        node, np.array([5.0, 0.0]), 0.0
-    )
+    ahead = _center_command(node, -5.0, 0.0, 0.0)
+    behind = _center_command(node, 5.0, 0.0, 0.0)
 
     assert ahead.linear.x == pytest.approx(1.0)
     assert behind.linear.x == pytest.approx(-0.5)
+
+
+def test_center_command_turns_back_to_the_captured_heading_by_default():
+    # The centre is to the robot's left; without goal facing it strafes
+    # there and turns back to heading 0.
+    cmd = _center_command(_center_node(), 3.0, 0.0, math.pi / 2)
+
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.5)
+    assert cmd.angular.z == pytest.approx(-1.0)
+
+
+def test_goal_facing_turns_toward_the_centre_while_walking_to_it():
+    cmd = _center_command(_center_node(goal_facing=True), 3.0, 0.0, math.pi / 2)
+
+    # It keeps walking left toward the centre and turns left to face it.
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.5)
+    assert cmd.angular.z == pytest.approx(1.0)
+
+
+def test_goal_facing_walks_straight_at_the_centre_while_turning():
+    # The centre is behind and slightly left. Clipping each axis would bend
+    # the path; scaling keeps the velocity pointed at the centre.
+    cmd = _center_command(_center_node(goal_facing=True), 4.0, -1.0, 0.0)
+
+    assert math.atan2(cmd.linear.y, cmd.linear.x) == pytest.approx(
+        math.atan2(1.0, -4.0)
+    )
+    assert cmd.linear.x == pytest.approx(-0.5)
+    assert cmd.angular.z == pytest.approx(1.0)
+
+
+def test_goal_facing_reaches_full_forward_speed_when_facing_the_centre():
+    cmd = _center_command(_center_node(goal_facing=True), -5.0, 0.0, 0.0)
+
+    assert cmd.linear.x == pytest.approx(1.0)
+    assert cmd.linear.y == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
+
+
+def test_goal_facing_turns_only_as_far_as_forward_is_faster():
+    node = _center_node(goal_facing=True)
+
+    # With the centre 90 degrees to the left, the P term asks for 0.5 m/s per
+    # metre. At 1.5 m that is 0.75 m/s, halfway from the 0.5 m/s lateral
+    # limit to the 1.0 m/s forward one, so the full-rate turn is halved.
+    halfway = _center_command(node, 1.5, 0.0, math.pi / 2)
+    # At 0.8 m the 0.4 m/s fits the lateral limit: it walks without turning.
+    near = _center_command(node, 0.8, 0.0, math.pi / 2)
+    # Inside the position deadzone it neither walks nor turns back to the
+    # captured heading.
+    arrived = _center_command(node, 0.02, 0.0, 2.0)
+
+    assert halfway.angular.z == pytest.approx(0.5)
+    assert near.angular.z == pytest.approx(0.0)
+    assert near.linear.y == pytest.approx(0.4)
+    assert (arrived.linear.x, arrived.linear.y, arrived.angular.z) == (
+        0.0, 0.0, 0.0,
+    )
+
+
+def test_limit_planar_velocity_keeps_direction_and_per_direction_limits():
+    forward = _MODULE.limit_planar_velocity(np.array([2.0, 0.5]), 0.5, 1.0, 0.5)
+    reverse = _MODULE.limit_planar_velocity(np.array([-2.0, 0.0]), 0.5, 1.0, 0.5)
+    inside = _MODULE.limit_planar_velocity(np.array([0.2, -0.1]), 0.5, 1.0, 0.5)
+
+    assert forward == pytest.approx([1.0, 0.25])
+    assert reverse == pytest.approx([-0.5, 0.0])
+    assert inside == pytest.approx([0.2, -0.1])
 
 
 class _Follower:

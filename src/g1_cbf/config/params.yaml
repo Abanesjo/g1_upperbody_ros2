@@ -69,6 +69,11 @@ workspace_cmd_vel_node:
     center_kd_yaw: 0.05
     center_position_deadzone: 0.05
     center_yaw_deadzone_deg: 15.0
+    # Return-to-centre (button 0). false: keep the captured heading and walk
+    # there in any direction. true: turn to face the centre while walking
+    # there, as far as forward is faster (fully beyond 2 m, not within 1 m
+    # with these gains and limits), then stop with whatever heading it has.
+    goal_facing: true
     max_linear_x: 1.0
     max_reverse_x: 0.5
     max_linear_y: 0.5

@@ -88,6 +88,17 @@ def workspace_to_body(vector, yaw):
     ], dtype=np.float64)
 
 
+def limit_planar_velocity(velocity, max_reverse_x, max_linear_x, max_linear_y):
+    """Scale a body-frame velocity into the axis limits, keeping its direction."""
+    limit_x = max_linear_x if velocity[0] >= 0.0 else max_reverse_x
+    scale = min(
+        1.0,
+        limit_x / max(abs(velocity[0]), 1e-12),
+        max_linear_y / max(abs(velocity[1]), 1e-12),
+    )
+    return np.asarray(velocity, dtype=np.float64) * scale
+
+
 def interpolate_path(linear_resolution=0.05):
     samples = [ROUTE_POINTS[0]]
     for previous, current in zip(ROUTE_POINTS[:-1], ROUTE_POINTS[1:]):
@@ -198,6 +209,7 @@ class WorkspaceCmdVelNode(Node):
         self.declare_parameter('center_kd_yaw', 0.05)
         self.declare_parameter('center_position_deadzone', 0.05)
         self.declare_parameter('center_yaw_deadzone_deg', 15.0)
+        self.declare_parameter('goal_facing', False)
         self.declare_parameter('max_linear_x', 0.5)
         self.declare_parameter('max_reverse_x', 0.5)
         self.declare_parameter('max_linear_y', 0.5)
@@ -301,6 +313,7 @@ class WorkspaceCmdVelNode(Node):
         self._center_yaw_deadzone = math.radians(
             float(value('center_yaw_deadzone_deg'))
         )
+        self._goal_facing = bool(value('goal_facing'))
         self._max_linear_x = float(value('max_linear_x'))
         self._max_reverse_x = float(value('max_reverse_x'))
         self._max_linear_y = float(value('max_linear_y'))
@@ -537,7 +550,27 @@ class WorkspaceCmdVelNode(Node):
             )
         desired_body = workspace_to_body(desired_ws, yaw)
 
-        yaw_error = wrap_angle(-yaw)
+        if self._goal_facing:
+            # Turn toward the centre while walking to it, as far as facing it
+            # is faster: not at all while the commanded speed fits the slowest
+            # direction's limit, fully once it needs the forward limit. Near
+            # the centre, where the bearing gets noisy, the robot therefore
+            # stops turning and keeps whatever heading it arrives with.
+            yaw_error = wrap_angle(
+                math.atan2(position_error[1], position_error[0]) - yaw
+            )
+            slow_limit = min(self._max_reverse_x, self._max_linear_y)
+            turn_weight = 0.0
+            if self._max_linear_x > slow_limit:
+                turn_weight = float(np.clip(
+                    (np.linalg.norm(desired_ws) - slow_limit)
+                    / (self._max_linear_x - slow_limit),
+                    0.0,
+                    1.0,
+                ))
+        else:
+            yaw_error = wrap_angle(-yaw)
+            turn_weight = 1.0
         desired_yaw_rate = 0.0
         if abs(yaw_error) > self._center_yaw_deadzone:
             desired_yaw_rate = (
@@ -550,13 +583,23 @@ class WorkspaceCmdVelNode(Node):
         self._last_center_time = now
 
         cmd = Twist()
+        if self._goal_facing:
+            # Scaled as a whole rather than clipped per axis, so the robot
+            # keeps walking straight at the centre while it turns and speeds
+            # up as it comes to face it.
+            desired_body = limit_planar_velocity(
+                desired_body,
+                self._max_reverse_x,
+                self._max_linear_x,
+                self._max_linear_y,
+            )
         cmd.linear.x = float(np.clip(
             desired_body[0], -self._max_reverse_x, self._max_linear_x
         ))
         cmd.linear.y = float(np.clip(
             desired_body[1], -self._max_linear_y, self._max_linear_y
         ))
-        cmd.angular.z = float(np.clip(
+        cmd.angular.z = turn_weight * float(np.clip(
             desired_yaw_rate, -self._max_angular_z, self._max_angular_z
         ))
         return cmd
