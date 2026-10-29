@@ -81,8 +81,16 @@ Only the bridge node talks to the simulator or the robot, and it does so with `u
 
 And in another terminal: 
 ```
-ros2 launch g1_human g1_human_manual.launch.xml
+ros2 launch g1_human g1_human_manual.launch.py
 ```
+
+For several humans, add `num_humans:=3`. Each human gets its own control window, and they start in a row along the world y axis, `human_spacing` (default 1 m) apart.
+
+For a crowd that walks around on its own, without control windows, use
+```
+ros2 launch g1_human g1_human_crowd.launch.xml num_humans:=20 use_sim_time:=true
+```
+The humans walk between random waypoints in a 10 m square around the origin (`side_length:=`, `center_x:=`, `center_y:=`), at 0.4 to 0.5 m/s (`min_speed:=`, `max_speed:=`), and `seed:=-1` draws a different crowd on every launch. The CBFs accept up to 100 humans, and the 385 nearest robot-human pairs (all pairs of five humans) go into the upper-body QP. The workspace circle (`world_circle_radius` in `g1_cbf/config/params.yaml`) has a radius of 5√2 m, so it passes through the corners of the default square.
 
 You will see a window below
 

@@ -1,5 +1,6 @@
 """JAX broadphase selection for active collision pairs."""
 
+import jax
 import jax.numpy as jnp
 
 from g1_cbf.jax_kinematics import (
@@ -179,18 +180,19 @@ def select_active_external_pairs_jax(
     )
     clearances = distances - RADII[robot_idx] - h_r[human_idx]
     present = human_mask[human_idx]
-    sortable_clearances = jnp.where(present, clearances, jnp.inf)
 
-    nearest_order = jnp.argsort(sortable_clearances)
-    ranks = jnp.zeros_like(nearest_order).at[nearest_order].set(
-        jnp.arange(nearest_order.shape[0], dtype=nearest_order.dtype)
-    )
+    def filtered_active():
+        nearest_order = jnp.argsort(jnp.where(present, clearances, jnp.inf))
+        ranks = jnp.zeros_like(nearest_order).at[nearest_order].set(
+            jnp.arange(nearest_order.shape[0], dtype=nearest_order.dtype)
+        )
+        keep_by_threshold = clearances <= activation_distance
+        keep_by_rank = ranks < always_keep_nearest
+        return present & (keep_by_threshold | keep_by_rank)
 
-    keep_by_threshold = clearances <= activation_distance
-    keep_by_rank = ranks < always_keep_nearest
-    filtered_active = present & (keep_by_threshold | keep_by_rank)
-    full_active = present
-    active = jnp.where(filtering_enabled, filtered_active, full_active)
+    # Without the filter every present pair is a candidate, and the cond
+    # skips the rank sort over all 7 * N_HUMAN_CAPSULES pairs.
+    active = jax.lax.cond(filtering_enabled, filtered_active, lambda: present)
 
     selected_order = jnp.argsort(jnp.where(active, clearances, jnp.inf))
     selected_flat = selected_order[:external_pair_slots]

@@ -24,11 +24,33 @@ install(PROGRAMS
   RENAME skeleton_viz_node
   DESTINATION lib/${PROJECT_NAME}
 )
+install(PROGRAMS
+  scripts/collider_merge_node.py
+  RENAME collider_merge_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
+  scripts/human_crowd_node.py
+  RENAME human_crowd_node
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_skeleton_markers
     test/test_skeleton_markers.py
+  )
+  ament_add_pytest_test(test_collider_merge
+    test/test_collider_merge.py
+  )
+  ament_add_pytest_test(test_human_manual_launch
+    test/test_human_manual_launch.py
+  )
+  ament_add_pytest_test(test_human_body
+    test/test_human_body.py
+  )
+  ament_add_pytest_test(test_crowd
+    test/test_crowd.py
   )
 endif()
 

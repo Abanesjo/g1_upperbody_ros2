@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """CBF safety filter for planar base velocity commands."""
 
+import gc
 import time as _time
 
 import jax
@@ -23,9 +24,9 @@ from tf2_ros import TransformException
 
 from g1_cbf.cbf_config import G1CmdVelCBFConfig
 from g1_cbf.human_capsules import (
+    capsule_arrays,
     human_data_is_fresh,
     human_data_time,
-    transform_capsule_array,
 )
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
@@ -253,6 +254,10 @@ class CmdVelCBFNode(Node):
             jnp.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=jnp.float64),
             jnp.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=bool),
         )
+        # Compile the head FK now, not on the first filtered tick.
+        head_sphere_center_np(
+            np.zeros(len(CONTROLLED_JOINTS)), np.zeros(len(LEG_JOINTS)),
+        )
         self.get_logger().info(
             f'cmd_vel CBF ready - JIT compiled in '
             f'{_time.monotonic() - t0:.1f}s'
@@ -300,7 +305,7 @@ class CmdVelCBFNode(Node):
 
     def _human_colliders_cb(self, msg: CapsuleArray):
         try:
-            msg_world = transform_capsule_array(
+            endpoints, capsule_radii = capsule_arrays(
                 msg,
                 self._world_frame,
                 self._tf_pose_lookup.buffer,
@@ -314,14 +319,20 @@ class CmdVelCBFNode(Node):
             )
             return
 
-        if not msg_world.capsules:
+        if not len(capsule_radii):
             self._clear_human_endpoints()
             self._last_human_time = human_data_time(
-                msg_world.header.stamp,
+                msg.header.stamp,
                 self.get_clock().now(),
             )
             return
 
+        if len(capsule_radii) > N_HUMAN_CAPSULES:
+            self.get_logger().warn(
+                f'/human/colliders has {len(capsule_radii)} capsules; '
+                f'using the first {N_HUMAN_CAPSULES} (N_HUMAN_CAPSULES)',
+                throttle_duration_sec=2.0,
+            )
         points_xy = np.zeros(
             (N_HUMAN_ENDPOINT_SPHERES, 2),
             dtype=np.float64,
@@ -329,25 +340,17 @@ class CmdVelCBFNode(Node):
         radii = np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=np.float64)
         mask = np.zeros(N_HUMAN_ENDPOINT_SPHERES, dtype=bool)
 
-        for i, capsule in enumerate(
-            msg_world.capsules[:N_HUMAN_CAPSULES]
-        ):
-            endpoint_xy = np.array([
-                [capsule.a.x, capsule.a.y],
-                [capsule.b.x, capsule.b.y],
-            ], dtype=np.float64)
-            radius = float(capsule.radius)
-
-            slot = 2 * i
-            points_xy[slot:slot + 2] = endpoint_xy
-            radii[slot:slot + 2] = radius
-            mask[slot:slot + 2] = True
+        # Endpoint a of capsule i goes in slot 2i, endpoint b in slot 2i + 1.
+        count = min(len(capsule_radii), N_HUMAN_CAPSULES)
+        points_xy[:2 * count] = endpoints[:count, :, :2].reshape(-1, 2)
+        radii[:2 * count] = np.repeat(capsule_radii[:count], 2)
+        mask[:2 * count] = True
 
         self._human_endpoint_points_xy = points_xy
         self._human_endpoint_radii = radii
         self._human_endpoint_mask = mask
         self._last_human_time = human_data_time(
-            msg_world.header.stamp,
+            msg.header.stamp,
             self.get_clock().now(),
         )
 
@@ -538,6 +541,9 @@ class CmdVelCBFNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = CmdVelCBFNode()
+    # As in g1_cbf_node: full garbage collections over the JAX objects built
+    # at startup stall the control loop.
+    gc.freeze()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

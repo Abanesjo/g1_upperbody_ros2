@@ -27,42 +27,41 @@ _HEAD_COLLIDER_COLOR = (1.0, 1.0, 0.0, 0.45)
 
 
 def _closest_points_segments(a1, b1, a2, b2):
-    """Closest points between two line segments (numpy, no JAX)."""
+    """Closest points between pairs of line segments, one pair per row.
+
+    Vectorized numpy: with a crowd there are hundreds of pairs per tick, and
+    their count changes every tick, which a jitted JAX version would have to
+    pad away.
+    """
     d1 = b1 - a1
     d2 = b2 - a2
     r = a1 - a2
-    a = np.dot(d1, d1)
-    e = np.dot(d2, d2)
-    f = np.dot(d2, r)
+    a = np.sum(d1 * d1, axis=-1)
+    e = np.sum(d2 * d2, axis=-1)
+    f = np.sum(d2 * r, axis=-1)
+    c = np.sum(d1 * r, axis=-1)
+    b_val = np.sum(d1 * d2, axis=-1)
 
     eps = 1e-8
-    if a < eps and e < eps:
-        return a1.copy(), a2.copy()
-
-    if a < eps:
-        s = 0.0
-        t = np.clip(f / e, 0.0, 1.0)
-    else:
-        c = np.dot(d1, r)
-        if e < eps:
-            t = 0.0
-            s = np.clip(-c / a, 0.0, 1.0)
-        else:
-            b_val = np.dot(d1, d2)
-            denom = a * e - b_val * b_val
-            if abs(denom) > eps:
-                s = np.clip((b_val * f - c * e) / denom, 0.0, 1.0)
-            else:
-                s = 0.0
-            t = (b_val * s + f) / e
-            if t < 0.0:
-                t = 0.0
-                s = np.clip(-c / a, 0.0, 1.0)
-            elif t > 1.0:
-                t = 1.0
-                s = np.clip((b_val - c) / a, 0.0, 1.0)
-
-    return a1 + s * d1, a2 + t * d2
+    safe_a = np.where(a < eps, 1.0, a)
+    safe_e = np.where(e < eps, 1.0, e)
+    denom = a * e - b_val * b_val
+    parallel = np.abs(denom) <= eps
+    s = np.where(
+        parallel, 0.0,
+        np.clip((b_val * f - c * e) / np.where(parallel, 1.0, denom), 0.0, 1.0),
+    )
+    t = (b_val * s + f) / safe_e
+    s = np.where(t < 0.0, np.clip(-c / safe_a, 0.0, 1.0), s)
+    s = np.where(t > 1.0, np.clip((b_val - c) / safe_a, 0.0, 1.0), s)
+    t = np.clip(t, 0.0, 1.0)
+    # Second segment is a point: project it on the first.
+    s = np.where(e < eps, np.clip(-c / safe_a, 0.0, 1.0), s)
+    t = np.where(e < eps, 0.0, t)
+    # First segment is a point: project it on the second.
+    t = np.where(a < eps, np.clip(f / safe_e, 0.0, 1.0), t)
+    s = np.where(a < eps, 0.0, s)
+    return a1 + s[..., None] * d1, a2 + t[..., None] * d2
 
 
 def _axis_to_quat(a, b):
@@ -263,15 +262,13 @@ class ColliderVisualizer:
 
     def _dist_capsules(self, a_all, b_all, human_capsules,
                        active_external_pairs=None):
-        self_pairs = []
+        body_i = [i for i, _ in COLLISION_PAIR_INDICES]
+        body_j = [j for _, j in COLLISION_PAIR_INDICES]
+        self_pairs = list(zip(*_closest_points_segments(
+            a_all[body_i], b_all[body_i], a_all[body_j], b_all[body_j],
+        )))
+
         human_pairs = []
-
-        for i, j in COLLISION_PAIR_INDICES:
-            p1, p2 = _closest_points_segments(
-                a_all[i], b_all[i], a_all[j], b_all[j],
-            )
-            self_pairs.append((p1, p2))
-
         if human_capsules:
             if active_external_pairs is None:
                 active_external_pairs = [
@@ -279,16 +276,17 @@ class ColliderVisualizer:
                     for h_idx in range(len(human_capsules))
                     for i in range(N_BODIES)
                 ]
-            for i, h_idx in active_external_pairs:
-                if i < 0 or i >= N_BODIES:
-                    continue
-                if h_idx < 0 or h_idx >= len(human_capsules):
-                    continue
-                hcap = human_capsules[h_idx]
-                p1, p2 = _closest_points_segments(
-                    a_all[i], b_all[i], hcap['a'], hcap['b'],
-                )
-                human_pairs.append((p1, p2))
+            pairs = [
+                (i, h_idx) for i, h_idx in active_external_pairs
+                if 0 <= i < N_BODIES and 0 <= h_idx < len(human_capsules)
+            ]
+            if pairs:
+                robot = [i for i, _ in pairs]
+                human_pairs = list(zip(*_closest_points_segments(
+                    a_all[robot], b_all[robot],
+                    np.array([human_capsules[h]['a'] for _, h in pairs]),
+                    np.array([human_capsules[h]['b'] for _, h in pairs]),
+                )))
 
         return (
             (self_pairs, (1.0, 1.0, 0.0, 0.5)),
@@ -362,13 +360,10 @@ class ColliderVisualizer:
         m.action = Marker.ADD
         m.scale = Vector3(x=0.005, y=0.0, z=0.0)
         m.color = ColorRGBA(r=color[0], g=color[1], b=color[2], a=color[3])
-        for p1, p2 in point_pairs:
-            m.points.append(Point(
-                x=float(p1[0]), y=float(p1[1]), z=float(p1[2]),
-            ))
-            m.points.append(Point(
-                x=float(p2[0]), y=float(p2[1]), z=float(p2[2]),
-            ))
+        coordinates = np.asarray(point_pairs, dtype=np.float64).reshape(-1, 3)
+        m.points = [
+            Point(x=x, y=y, z=z) for x, y, z in coordinates.tolist()
+        ]
         return m
 
     @staticmethod

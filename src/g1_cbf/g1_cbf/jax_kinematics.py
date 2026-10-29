@@ -20,6 +20,7 @@ Joint index mapping for q (11,):
 """
 
 import numpy as np
+import jax
 import jax.numpy as jnp
 
 # ---------------------------------------------------------------------------
@@ -350,8 +351,13 @@ LEG_JOINTS = [
 ]
 N_LEG_JOINTS = len(LEG_JOINTS)
 
-# Maximum human capsules (for fixed-size arrays)
-N_HUMAN_CAPSULES = 11
+# Maximum human capsules (for fixed-size arrays). One human is 11 capsules
+# (g1_human: 9 bodies + 2 shins; zedx human_mapping: 9 body + 2 hand
+# capsules), so this is room for 100 humans. The upper-body QP holds only the
+# nearest external_max_active_pairs robot-human pairs, but the broadphase
+# that picks them ranks every slot, padded or not, so its cost grows with
+# this cap rather than with the number of humans present.
+N_HUMAN_CAPSULES = 1100
 
 
 # ---------------------------------------------------------------------------
@@ -465,8 +471,22 @@ def capsule_endpoints_all(q, q_legs=None):
     return jnp.stack(a_list), jnp.stack(b_list)
 
 
+def _joints_np_to_jnp(q_np, q_legs_np):
+    q_legs_np = np.zeros(N_LEG_JOINTS) if q_legs_np is None else q_legs_np
+    return (
+        jnp.asarray(q_np, dtype=jnp.float64),
+        jnp.asarray(q_legs_np, dtype=jnp.float64),
+    )
+
+
+# Run eagerly, the FK is dozens of separate JAX ops, about 14 ms per call on
+# this CPU; compiled, it takes about 0.04 ms. The numpy wrappers below are
+# called every tick by several nodes.
+_capsule_endpoints_jit = jax.jit(capsule_endpoints_all)
+
+
 def capsule_endpoints_np(q_np, q_legs_np=None):
-    """Numpy convenience wrapper for visualization (outside JIT path).
+    """Numpy wrapper of capsule_endpoints_all, compiled on first use.
 
     Args:
         q_np: (11,) numpy array of controlled joint positions.
@@ -477,9 +497,7 @@ def capsule_endpoints_np(q_np, q_legs_np=None):
         b_all: (N_BODIES, 3) numpy
         radii: (N_BODIES,) numpy
     """
-    q_j = jnp.array(q_np, dtype=jnp.float64)
-    ql_j = jnp.array(q_legs_np, dtype=jnp.float64) if q_legs_np is not None else None
-    a, b = capsule_endpoints_all(q_j, ql_j)
+    a, b = _capsule_endpoints_jit(*_joints_np_to_jnp(q_np, q_legs_np))
     return np.asarray(a), np.asarray(b), np.asarray(RADII)
 
 
@@ -489,15 +507,14 @@ def head_sphere_center(q, q_legs=None):
     return a_all[HEAD_COLLIDER_BODY_INDEX]
 
 
+_head_sphere_center_jit = jax.jit(head_sphere_center)
+
+
 def head_sphere_center_np(q_np, q_legs_np=None):
-    """Numpy wrapper for the head collider center."""
-    return np.asarray(head_sphere_center(
-        jnp.array(q_np, dtype=jnp.float64),
-        (
-            jnp.array(q_legs_np, dtype=jnp.float64)
-            if q_legs_np is not None else None
-        ),
-    ))
+    """Numpy wrapper for the head collider center, compiled on first use."""
+    return np.asarray(
+        _head_sphere_center_jit(*_joints_np_to_jnp(q_np, q_legs_np))
+    )
 
 
 # ---------------------------------------------------------------------------

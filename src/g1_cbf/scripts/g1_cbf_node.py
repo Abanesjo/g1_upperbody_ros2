@@ -8,6 +8,9 @@ Subscribes to /joint_commands_unsafe, applies CBF-QP filtering,
 publishes safe commands on /joint_commands at a fixed rate.
 """
 
+import array
+import gc
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -30,9 +33,9 @@ from g1_cbf.active_pairs import (
 )
 from g1_cbf.cbf_config import G1CollisionCBFConfig
 from g1_cbf.human_capsules import (
+    capsule_arrays,
     human_data_is_fresh,
     human_data_time,
-    transform_capsule_array,
 )
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
@@ -57,6 +60,25 @@ from g1_cbf_msg.msg import (
 
 WORLD_FRAME = 'world'
 PELVIS_FRAME = 'pelvis'
+
+
+def _int32_array(values):
+    return array.array('i', np.asarray(values, dtype=np.int32).tobytes())
+
+
+def _float32_array(values):
+    return array.array('f', np.asarray(values, dtype=np.float32).tobytes())
+
+
+def external_pair_slot_count(max_active_pairs):
+    """Robot-human pair rows in the QP, filled with the nearest pairs.
+
+    Applies with and without the distance filter: every pair of
+    N_HUMAN_CAPSULES (7 per capsule) would make each tick far too slow.
+    """
+    return max(1, min(
+        int(max_active_pairs), N_EXTERNAL_ROBOT_BODIES * N_HUMAN_CAPSULES,
+    ))
 
 
 def clamp_cbf_target(target, q_actual, max_lead):
@@ -90,6 +112,7 @@ class G1CBFNode(Node):
         self.declare_parameter('lpf_gain', 0.0)
         self.declare_parameter('max_lead', 2.0)
         self.declare_parameter('evaluate_at_actual', True)
+        self.declare_parameter('default_pose_without_targets', False)
         self.declare_parameter('collision_geometry', 'capsules')
         self.declare_parameter('sphere_interpolation_level', 0)
         self.declare_parameter('sphere_radius_gain', 1.0)
@@ -107,7 +130,7 @@ class G1CBFNode(Node):
         self.declare_parameter('human_radius_scale', 1.0)
         self.declare_parameter('external_filter_enabled', True)
         self.declare_parameter('external_activation_distance', 0.35)
-        self.declare_parameter('external_max_active_pairs', 16)
+        self.declare_parameter('external_max_active_pairs', 385)
         self.declare_parameter('external_always_keep_nearest', 4)
         self.declare_parameter('external_torso_margin_phi', 0.1)
         self.declare_parameter('external_torso_gamma', 0.3)
@@ -214,25 +237,15 @@ class G1CBFNode(Node):
             float(r) * human_radius_scale
             for r in self.get_parameter('human_radii').value
         ]
-        external_filter_enabled = bool(
-            self.get_parameter('external_filter_enabled').value
-        )
-        external_max_active_pairs = int(
-            self.get_parameter('external_max_active_pairs').value
-        )
         sphere_interpolation_level = int(
             self.get_parameter('sphere_interpolation_level').value
         )
         sphere_radius_gain = float(
             self.get_parameter('sphere_radius_gain').value
         )
-        full_external_pairs = N_EXTERNAL_ROBOT_BODIES * N_HUMAN_CAPSULES
-        if external_filter_enabled:
-            self._external_pair_slots = max(
-                1, min(external_max_active_pairs, full_external_pairs)
-            )
-        else:
-            self._external_pair_slots = full_external_pairs
+        self._external_pair_slots = external_pair_slot_count(
+            self.get_parameter('external_max_active_pairs').value
+        )
 
         self._internal_pair_slots = 1
         self._all_internal_sphere_pair_indices = jnp.zeros((1, 4), dtype=jnp.int32)
@@ -447,7 +460,7 @@ class G1CBFNode(Node):
 
     def _human_cb(self, msg: CapsuleArray):
         try:
-            msg_world = transform_capsule_array(
+            endpoints, radii = capsule_arrays(
                 msg,
                 self._world_frame,
                 self._tf_pose_lookup.buffer,
@@ -461,16 +474,20 @@ class G1CBFNode(Node):
             )
             return
 
-        capsules = []
-        for c in msg_world.capsules[:N_HUMAN_CAPSULES]:
-            capsules.append({
-                'a': np.array([c.a.x, c.a.y, c.a.z]),
-                'b': np.array([c.b.x, c.b.y, c.b.z]),
-                'radius': float(c.radius),
-            })
-        self._human_capsules = capsules
+        if len(radii) > N_HUMAN_CAPSULES:
+            self.get_logger().warn(
+                f'/human/colliders has {len(radii)} capsules; '
+                f'using the first {N_HUMAN_CAPSULES} (N_HUMAN_CAPSULES)',
+                throttle_duration_sec=2.0,
+            )
+        self._human_capsules = [
+            {'a': a, 'b': b, 'radius': float(radius)}
+            for (a, b), radius in zip(
+                endpoints[:N_HUMAN_CAPSULES], radii[:N_HUMAN_CAPSULES],
+            )
+        ]
         self._last_human_time = human_data_time(
-            msg_world.header.stamp,
+            msg.header.stamp,
             self.get_clock().now(),
         )
 
@@ -524,8 +541,20 @@ class G1CBFNode(Node):
             self._publish_disabled_command()
             return
 
-        if self.q_des_latest is None:
-            return
+        q_des = self.q_des_latest
+        if q_des is None:
+            if not self.get_parameter('default_pose_without_targets').value:
+                return
+            # Nothing has published targets yet. Track the policy's default
+            # pose so the barriers act from the start. q_des_latest stays
+            # empty, so the first message still fills its missing joints
+            # from q_ctrl.
+            self.get_logger().info(
+                'No upper-body targets received yet; tracking the default '
+                'pose until they arrive',
+                once=True,
+            )
+            q_des = CONTROLLED_JOINT_DEFAULTS
 
         human_capsules = self._active_human_capsules()
         workspace_state = self._workspace_state
@@ -549,17 +578,15 @@ class G1CBFNode(Node):
 
         # Initialize on first tick
         if self.q_des_filtered is None:
-            self.q_des_filtered = self.q_des_latest.copy()
+            self.q_des_filtered = q_des.copy()
         if self.q_cbf_target is None:
             self.q_cbf_target = self.q_ctrl.copy()
 
         # Low-pass filter on desired position
         if 0 < lpf < 1:
-            self.q_des_filtered += lpf * (
-                self.q_des_latest - self.q_des_filtered
-            )
+            self.q_des_filtered += lpf * (q_des - self.q_des_filtered)
         else:
-            self.q_des_filtered = self.q_des_latest.copy()
+            self.q_des_filtered = q_des.copy()
 
         # Reference velocity: track desired from persistent target
         dq_ref = K * (self.q_des_filtered - self.q_cbf_target)
@@ -679,12 +706,18 @@ class G1CBFNode(Node):
                 jnp.array(buf, dtype=jnp.float64),
                 jnp.array(mask, dtype=bool),
             )
-        for i in range(count):
-            c = human_capsules[i]
-            buf[i, :3] = self._world_to_pelvis(c['a'], pelvis_pose)
-            buf[i, 3:6] = self._world_to_pelvis(c['b'], pelvis_pose)
-            buf[i, 6] = c['radius']
-            mask[i] = True
+        if count:
+            # One batched transform: a per-point loop costs milliseconds of
+            # the tick once several humans are present.
+            capsules = human_capsules[:count]
+            buf[:count, :3] = self._world_to_pelvis(
+                np.array([c['a'] for c in capsules]), pelvis_pose,
+            )
+            buf[:count, 3:6] = self._world_to_pelvis(
+                np.array([c['b'] for c in capsules]), pelvis_pose,
+            )
+            buf[:count, 6] = [c['radius'] for c in capsules]
+            mask[:count] = True
         return (
             jnp.array(buf, dtype=jnp.float64),
             jnp.array(mask, dtype=bool),
@@ -890,22 +923,30 @@ class G1CBFNode(Node):
         msg = ActiveCollisionPairs()
         msg.header.stamp = stamp
         msg.header.frame_id = 'pelvis'
-        for slot in range(active_count):
-            msg.robot_body_index.append(int(pair_indices[slot, 0]))
-            msg.human_capsule_index.append(int(pair_indices[slot, 1]))
-            msg.clearance.append(float(clearances[slot]))
-        for slot in range(active_internal_count):
-            msg.internal_body_a_index.append(int(internal_indices[slot, 0]))
-            msg.internal_sphere_a_index.append(int(internal_indices[slot, 1]))
-            msg.internal_body_b_index.append(int(internal_indices[slot, 2]))
-            msg.internal_sphere_b_index.append(int(internal_indices[slot, 3]))
-            msg.internal_clearance.append(float(internal_clearances[slot]))
+        # The selectors sort active slots first, so the active ones are a
+        # prefix. array.array skips the per-element checks rosidl runs on
+        # lists, which cost milliseconds for hundreds of pairs.
+        msg.robot_body_index = _int32_array(pair_indices[:active_count, 0])
+        msg.human_capsule_index = _int32_array(pair_indices[:active_count, 1])
+        msg.clearance = _float32_array(clearances[:active_count])
+        internal = internal_indices[:active_internal_count]
+        msg.internal_body_a_index = _int32_array(internal[:, 0])
+        msg.internal_sphere_a_index = _int32_array(internal[:, 1])
+        msg.internal_body_b_index = _int32_array(internal[:, 2])
+        msg.internal_sphere_b_index = _int32_array(internal[:, 3])
+        msg.internal_clearance = _float32_array(
+            internal_clearances[:active_internal_count]
+        )
         self.active_pairs_pub.publish(msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = G1CBFNode()
+    # Keep everything built at startup (JAX, the compiled CBF) out of the
+    # garbage collector: full collections over it stalled the 100 Hz loop
+    # for 70-120 ms each, several times a second with a crowd.
+    gc.freeze()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

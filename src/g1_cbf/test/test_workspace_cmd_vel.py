@@ -210,6 +210,34 @@ def test_workspace_to_body_supports_holonomic_motion():
     assert body == pytest.approx([0.2, -0.5])
 
 
+def test_center_command_clips_forward_and_reverse_separately():
+    node = SimpleNamespace(
+        get_clock=lambda: SimpleNamespace(now=lambda: None),
+        _last_center_time=None,
+        _center_position_deadzone=0.05,
+        _center_kp_linear=0.5,
+        _center_kd_linear=0.05,
+        _center_yaw_deadzone=math.radians(15.0),
+        _center_kp_yaw=1.0,
+        _center_kd_yaw=0.05,
+        _max_linear_x=1.0,
+        _max_reverse_x=0.5,
+        _max_linear_y=0.5,
+        _max_angular_z=1.0,
+    )
+
+    # The centre is 5 m ahead, then 5 m behind: the P term asks for 2.5 m/s.
+    ahead = _MODULE.WorkspaceCmdVelNode._center_command(
+        node, np.array([-5.0, 0.0]), 0.0
+    )
+    behind = _MODULE.WorkspaceCmdVelNode._center_command(
+        node, np.array([5.0, 0.0]), 0.0
+    )
+
+    assert ahead.linear.x == pytest.approx(1.0)
+    assert behind.linear.x == pytest.approx(-0.5)
+
+
 class _Follower:
     def __init__(self):
         self.reset_count = 0

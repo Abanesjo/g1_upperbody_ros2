@@ -6,7 +6,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from geometry_msgs.msg import Twist
-from g1_cbf_msg.msg import WorkspaceState
+from g1_cbf_msg.msg import Capsule, CapsuleArray, WorkspaceState
+from rclpy.time import Time
 
 
 MODULE_PATH = (
@@ -136,6 +137,40 @@ def test_cmd_vel_area_barrier_is_translation_invariant():
     original = barrier([2.0, -1.0], [0.5, -0.25])
     shifted = barrier([7.0, -4.0], [5.5, -3.25])
     assert shifted == pytest.approx(original)
+
+
+def test_human_capsules_beyond_the_cap_are_dropped_with_a_warning():
+    warnings = []
+    node = CmdVelCBFNode.__new__(CmdVelCBFNode)
+    node._world_frame = 'world'
+    node._tf_pose_lookup = SimpleNamespace(buffer=None)
+    node.get_logger = lambda: SimpleNamespace(
+        warn=lambda message, **_kwargs: warnings.append(message),
+    )
+    node.get_clock = lambda: SimpleNamespace(now=lambda: Time(seconds=5.0))
+    msg = CapsuleArray()
+    msg.header.frame_id = 'world'
+    msg.header.stamp = Time(seconds=4.9).to_msg()
+    for k in range(MODULE.N_HUMAN_CAPSULES + 3):
+        capsule = Capsule()
+        capsule.a.x = capsule.b.x = float(k)
+        capsule.b.y = 1.0
+        capsule.radius = 0.1
+        msg.capsules.append(capsule)
+
+    node._human_colliders_cb(msg)
+
+    assert node._human_endpoint_mask.all()
+    assert node._human_endpoint_points_xy.shape == (
+        MODULE.N_HUMAN_ENDPOINT_SPHERES, 2,
+    )
+    assert node._human_endpoint_points_xy[-1] == pytest.approx(
+        [MODULE.N_HUMAN_CAPSULES - 1, 1.0],
+    )
+    assert any(
+        f'has {MODULE.N_HUMAN_CAPSULES + 3} capsules' in warning
+        for warning in warnings
+    )
 
 
 def test_head_state_is_passed_to_solver():

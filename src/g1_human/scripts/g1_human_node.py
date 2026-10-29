@@ -18,17 +18,19 @@ from geometry_msgs.msg import Quaternion, Vector3
 from std_msgs.msg import ColorRGBA
 
 from g1_cbf.jax_kinematics import (
-    capsule_endpoints_np, BODY_NAMES, HALF_LENGTHS, RADII,
+    capsule_endpoints_np,
     CONTROLLED_JOINTS, CONTROLLED_JOINT_DEFAULTS,
 )
 from g1_cbf_msg.msg import Capsule, CapsuleArray
+from g1_human.human_body import (
+    HUMAN_CAPSULE_NAMES, PELVIS_HEIGHT, STANDING_KNEE_ANGLE, human_capsules,
+)
 
 DEFAULT_HUMAN_X = 0.5
 DEFAULT_HUMAN_Y = 0.0
-DEFAULT_HUMAN_Z = 0.784202
+DEFAULT_HUMAN_Z = PELVIS_HEIGHT
 DEFAULT_HUMAN_YAW = 0.0
 WORLD_FRAME = 'world'
-HUMAN_BASE_BODY_COUNT = len(BODY_NAMES)
 
 SENSOR_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -55,6 +57,12 @@ class G1HumanNode(Node):
         self.declare_parameter('sphere_interpolation_level', 0)
         self.declare_parameter('sphere_radius_gain', 1.0)
         self.declare_parameter('human_radius_scale', 1.0)
+        # Every simulated human draws on /human/collider_markers, each in a
+        # marker namespace of its own.
+        self.declare_parameter('marker_namespace', 'human_colliders')
+        self._marker_namespace = str(
+            self.get_parameter('marker_namespace').value
+        )
 
         # Joint state: 11 CBF-controlled joints, default MJLab home pose.
         self.q_controlled = CONTROLLED_JOINT_DEFAULTS.copy()
@@ -91,8 +99,8 @@ class G1HumanNode(Node):
         self.create_timer(1.0 / rate, self._tick)
 
         self.get_logger().info(
-            f'g1_human_node ready — publishing world-frame human at '
-            f'{rate:.0f} Hz'
+            f'g1_human_node ready — publishing world-frame human on '
+            f'{self.capsule_pub.topic_name} at {rate:.0f} Hz'
         )
 
     def _get_world_transform(self):
@@ -126,12 +134,17 @@ class G1HumanNode(Node):
     def _tick(self):
         q = self.q_des if self.q_des is not None else CONTROLLED_JOINT_DEFAULTS
 
-        # FK via JAX (returns numpy)
-        a_all, b_all, radii = capsule_endpoints_np(q)
-        half_lengths = np.asarray(HALF_LENGTHS)
+        # FK via JAX (returns numpy), then the human's longer thighs and shins
+        a_body, b_body, _ = capsule_endpoints_np(q)
         radius_scale = float(self.get_parameter('human_radius_scale').value)
+        a_local, b_local, radii, half_lengths = human_capsules(
+            a_body, b_body, (STANDING_KNEE_ANGLE, STANDING_KNEE_ANGLE),
+            radius_scale,
+        )
 
         R_world, t_world = self._get_world_transform()
+        a_all = a_local @ R_world.T + t_world
+        b_all = b_local @ R_world.T + t_world
 
         # Build capsule message + viz data
         capsule_msg = CapsuleArray()
@@ -139,91 +152,17 @@ class G1HumanNode(Node):
         capsule_msg.header.stamp = stamp
         capsule_msg.header.frame_id = WORLD_FRAME
 
-        # Thigh indices for extension
-        THIGH_INDICES = {
-            BODY_NAMES.index('left_thigh'): 'left',
-            BODY_NAMES.index('right_thigh'): 'right',
-        }
-        THIGH_SCALE = 1.5
-        shin_radius = 0.065 * radius_scale
-        shin_half_length = 0.15 * 1.5
-        shin_seg_half = shin_half_length - shin_radius
-        shin_knee_bend = np.radians(10.0)  # slight forward bend at knee
-
         capsule_data = []
-        thigh_bottoms = {}  # side -> bottom endpoint in local frame (for shin attachment)
-
-        for i in range(HUMAN_BASE_BODY_COUNT):
-            body_name = BODY_NAMES[i]
-            r = float(radii[i]) * radius_scale
-            hl = float(half_lengths[i])
-            a_local = a_all[i]
-            b_local = b_all[i]
-
-            # Extend thigh capsules for the human
-            if i in THIGH_INDICES:
-                hl_ext = hl * THIGH_SCALE
-                center = (a_local + b_local) / 2.0
-                axis = a_local - b_local
-                length = np.linalg.norm(axis)
-                if length > 1e-6:
-                    direction = axis / length
-                else:
-                    direction = np.array([0.0, 0.0, 1.0])
-                seg_half_ext = max(0.0, hl_ext - r)
-                a_local = center + seg_half_ext * direction
-                b_local = center - seg_half_ext * direction
-                hl = hl_ext
-                thigh_bottoms[THIGH_INDICES[i]] = b_local.copy()
-            else:
-                a_local, b_local = self._scale_capsule_width(
-                    a_local, b_local, hl, r,
-                )
-
-            a_world = R_world @ a_local + t_world
-            b_world = R_world @ b_local + t_world
-
+        for name, r, hl, a_world, b_world in zip(
+            HUMAN_CAPSULE_NAMES, radii, half_lengths, a_all, b_all,
+        ):
             capsule = Capsule()
             capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
             capsule.b = Point(x=float(b_world[0]), y=float(b_world[1]), z=float(b_world[2]))
-            capsule.radius = r
-            capsule.name = body_name
+            capsule.radius = float(r)
+            capsule.name = name
             capsule_msg.capsules.append(capsule)
-            capsule_data.append((body_name, r, hl, a_world, b_world))
-
-        # Shin capsules — start at bottom of extended thigh, continue in same direction
-        for side in ('left', 'right'):
-            thigh_idx = BODY_NAMES.index(f'{side}_thigh')
-            a_thigh = a_all[thigh_idx]
-            b_thigh = thigh_bottoms[side]
-            axis = a_thigh - b_thigh
-            length = np.linalg.norm(axis)
-            direction = axis / length if length > 1e-6 else np.array([0.0, 0.0, 1.0])
-
-            # Rotate shin direction forward (Y axis bend) for knee angle
-            # Find a perpendicular axis to rotate around (lateral axis)
-            up = np.array([0.0, 0.0, 1.0])
-            lateral = np.cross(direction, up)
-            if np.linalg.norm(lateral) < 1e-6:
-                lateral = np.array([0.0, 1.0, 0.0])
-            lateral = lateral / np.linalg.norm(lateral)
-            # Rodrigues rotation of direction around lateral axis
-            c, s = np.cos(shin_knee_bend), np.sin(shin_knee_bend)
-            shin_dir = direction * c + np.cross(lateral, direction) * s + lateral * np.dot(lateral, direction) * (1 - c)
-
-            # Shin top = thigh bottom, shin extends in bent direction
-            shin_top = b_thigh
-            shin_bottom = shin_top - 2.0 * max(0.0, shin_seg_half) * shin_dir
-            a_world = R_world @ shin_top + t_world
-            b_world = R_world @ shin_bottom + t_world
-
-            capsule = Capsule()
-            capsule.a = Point(x=float(a_world[0]), y=float(a_world[1]), z=float(a_world[2]))
-            capsule.b = Point(x=float(b_world[0]), y=float(b_world[1]), z=float(b_world[2]))
-            capsule.radius = shin_radius
-            capsule.name = f'{side}_shin'
-            capsule_msg.capsules.append(capsule)
-            capsule_data.append((f'{side}_shin', shin_radius, shin_half_length, a_world, b_world))
+            capsule_data.append((name, float(r), float(hl), a_world, b_world))
 
         self.capsule_pub.publish(capsule_msg)
 
@@ -238,22 +177,6 @@ class G1HumanNode(Node):
             self.viz_pub.publish(viz_msg)
 
     _COLOR = (0.9, 0.5, 0.1, 0.3)  # orange for human
-
-    @staticmethod
-    def _scale_capsule_width(a_local, b_local, half_length, radius):
-        """Scale capsule radius while preserving full axial length."""
-        center = (a_local + b_local) / 2.0
-        axis = a_local - b_local
-        length = np.linalg.norm(axis)
-        if length > 1e-6:
-            direction = axis / length
-        else:
-            direction = np.array([0.0, 0.0, 1.0])
-        seg_half = max(0.0, half_length - radius)
-        return (
-            center + seg_half * direction,
-            center - seg_half * direction,
-        )
 
     def _viz_capsules(self, stamp, capsule_data):
         msg = MarkerArray()
@@ -300,7 +223,7 @@ class G1HumanNode(Node):
         m = Marker()
         m.header.frame_id = WORLD_FRAME
         m.header.stamp = stamp
-        m.ns = 'human_colliders'
+        m.ns = self._marker_namespace
         m.id = mid
         m.type = marker_type
         m.action = Marker.ADD
@@ -322,7 +245,7 @@ class G1HumanNode(Node):
             m = Marker()
             m.header.frame_id = WORLD_FRAME
             m.header.stamp = stamp
-            m.ns = 'human_colliders'
+            m.ns = self._marker_namespace
             m.id = j
             m.action = Marker.DELETE
             msg.markers.append(m)

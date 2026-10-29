@@ -15,14 +15,18 @@ g1_cbf_node:
     sphere_radius_gain: 1.0         # radius scaling (spheres mode)
     max_iter: 200     # QP solver max iterations
     solver_tol: 0.001   # QP solver convergence tolerance (KKT residual)
-    # Human capsule dimensions (order: torso, L/R arm, L/R shoulder,
-    # L/R thigh_ext, L/R hand, L/R shin)
+    # Human capsule dimensions of one human, repeated for each human in
+    # /human/colliders; only sphere mode reads them (order: torso, L/R arm,
+    # L/R shoulder, L/R thigh_ext, L/R hand, L/R shin)
     human_half_lengths: [0.33, 0.20, 0.20, 0.145, 0.145, 0.225, 0.225, 0.16, 0.16, 0.225, 0.225]
     human_radii: [0.10, 0.05, 0.05, 0.05, 0.05, 0.065, 0.065, 0.10, 0.10, 0.065, 0.065]
     human_radius_scale: 1.0
-    external_filter_enabled: false
+    external_filter_enabled: false  # true also drops pairs beyond external_activation_distance
     external_activation_distance: 0.35
-    external_max_active_pairs: 16
+    # QP rows for robot-human pairs, filled with the nearest present pairs:
+    # 385 holds every pair of five humans (7 robot bodies x 55 capsules).
+    # Sphere mode turns each pair into up to 16 rows; use about 16 there.
+    external_max_active_pairs: 770
     external_always_keep_nearest: 4
     external_torso_margin_phi: 0.1
     external_torso_gamma: 0.3
@@ -33,7 +37,7 @@ g1_cbf_node:
     area_cbf: true
     head_circle_cbf_enabled: true
     head_collider_radius: 0.1
-    world_circle_radius: 1.5
+    world_circle_radius: 7.0710678  # 5*sqrt(2): through the corners of the 10 m crowd square
     world_frame: "world"
     pelvis_frame: "pelvis"
     human_timeout_sec: 0.5
@@ -65,7 +69,8 @@ workspace_cmd_vel_node:
     center_kd_yaw: 0.05
     center_position_deadzone: 0.05
     center_yaw_deadzone_deg: 15.0
-    max_linear_x: 0.5
+    max_linear_x: 1.0
+    max_reverse_x: 0.5
     max_linear_y: 0.5
     max_angular_z: 1.0
     workspace_cbf_available: true
@@ -91,12 +96,12 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 0.3
-    external_gamma: 1.0
+    external_margin_phi: 1.0
+    external_gamma: 2.0
     head_collider_radius: 0.3
-    world_circle_radius: 1.5
-    cmd_vel_limits:  # deployment cap, inside the policy's training range
-      lin_vel_x: [-0.5, 0.5]
+    world_circle_radius: 7.0710678  # 5*sqrt(2): through the corners of the 10 m crowd square
+    cmd_vel_limits:  # the policy's trained range, as in g1_rl_deploy config.yaml
+      lin_vel_x: [-0.5, 1.0]
       lin_vel_y: [-0.5, 0.5]
     state_timeout_sec: 0.2
     human_timeout_sec: 0.5
@@ -119,7 +124,7 @@ origin_cmd_vel_publisher_node:
     kd_yaw: 0.05
     position_deadzone: 0.05
     yaw_deadzone_deg: 15.0
-    max_linear_x: 0.5
+    max_linear_x: 1.0
     max_reverse_x: 0.5
     max_linear_y: 0.5
     max_angular_z: 1.0
@@ -131,6 +136,6 @@ origin_cmd_vel_publisher_node:
 
 pelvis_circle_publisher_node:
   ros__parameters:
-    world_circle_radius: 1.5
+    world_circle_radius: 7.0710678  # 5*sqrt(2): through the corners of the 10 m crowd square
     height: 0.5
     workspace_frame: "workspace"

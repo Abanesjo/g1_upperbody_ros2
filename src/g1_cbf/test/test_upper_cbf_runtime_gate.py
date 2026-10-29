@@ -5,7 +5,7 @@ from types import MethodType, SimpleNamespace
 
 import numpy as np
 import pytest
-from g1_cbf_msg.msg import WorkspaceState
+from g1_cbf_msg.msg import Capsule, CapsuleArray, WorkspaceState
 from rclpy.time import Time
 from std_msgs.msg import Bool
 
@@ -31,7 +31,7 @@ class _Logger:
     def __init__(self):
         self.messages = []
 
-    def info(self, message):
+    def info(self, message, **_kwargs):
         self.messages.append(message)
 
     def warn(self, message, **_kwargs):
@@ -469,6 +469,200 @@ def test_external_disabled_tick_keeps_internal_cbf_and_solver_active():
     assert calls['solver'] == 1
     assert node._human_capsules is cached_humans
     assert len(command_pub.messages) == 1
+
+
+def _targetless_tick_node(default_pose_without_targets):
+    """A node in control that has received no target, with faked QP inputs."""
+    joint_count = len(_MODULE.CONTROLLED_JOINTS)
+    solver_u_des = []
+    command_pub = _Publisher()
+    logger = _Logger()
+
+    class FakeCBF:
+        def safety_filter(self, _z, u_des, *_args):
+            solver_u_des.append(np.asarray(u_des))
+            return _MODULE.jnp.zeros(joint_count, dtype=_MODULE.jnp.float64)
+
+    parameters = {
+        'default_pose_without_targets': default_pose_without_targets,
+        'dt': 0.01,
+        'K': 1.0,
+        'max_velocity': 10.0,
+        'lpf_gain': 1.0,
+        'evaluate_at_actual': True,
+        'max_lead': 2.0,
+    }
+    node = SimpleNamespace(
+        q_ctrl=np.zeros(joint_count),
+        q_legs=np.zeros(_MODULE.N_LEG_JOINTS),
+        q_des_latest=None,
+        q_des_filtered=None,
+        q_cbf_target=None,
+        _cbf_enabled=True,
+        _workspace_state=(np.zeros(2), False, 0),
+        cbf=FakeCBF(),
+        cmd_pub=command_pub,
+        get_parameter=lambda name: SimpleNamespace(value=parameters[name]),
+        get_clock=lambda: SimpleNamespace(now=lambda: Time(seconds=7.0)),
+        get_logger=lambda: logger,
+        _active_human_capsules=lambda: [],
+        _needs_pelvis_pose=lambda humans, _workspace: bool(humans),
+        _pack_human_capsules=lambda _pose, _humans: (
+            _MODULE.jnp.zeros(
+                (_MODULE.N_HUMAN_CAPSULES, 7), dtype=_MODULE.jnp.float64,
+            ),
+            _MODULE.jnp.zeros(_MODULE.N_HUMAN_CAPSULES, dtype=bool),
+        ),
+        _select_active_external_pairs=lambda *_args: (
+            _MODULE.jnp.zeros((1, 2), dtype=_MODULE.jnp.int32),
+            _MODULE.jnp.zeros(1, dtype=bool),
+            _MODULE.jnp.full(1, _MODULE.jnp.inf, dtype=_MODULE.jnp.float64),
+        ),
+        _select_active_internal_pairs=lambda *_args: (
+            _MODULE.jnp.zeros((1, 4), dtype=_MODULE.jnp.int32),
+            _MODULE.jnp.ones(1, dtype=bool),
+            _MODULE.jnp.zeros(1, dtype=_MODULE.jnp.float64),
+        ),
+        _head_circle_args=lambda _pose, _workspace: (
+            _MODULE.jnp.zeros(3, dtype=_MODULE.jnp.float64),
+            _MODULE.jnp.array(
+                [0.0, 0.0, 0.0, 1.0], dtype=_MODULE.jnp.float64,
+            ),
+            _MODULE.jnp.zeros(2, dtype=_MODULE.jnp.float64),
+            _MODULE.jnp.array(3.0, dtype=_MODULE.jnp.float64),
+            _MODULE.jnp.array(0.3, dtype=_MODULE.jnp.float64),
+            _MODULE.jnp.array(False, dtype=bool),
+        ),
+        _publish_active_pairs=lambda *_args: None,
+    )
+    return node, solver_u_des, command_pub, logger
+
+
+def test_tick_without_targets_waits_by_default():
+    node, solver_u_des, command_pub, _logger = _targetless_tick_node(False)
+
+    _MODULE.G1CBFNode._tick(node)
+
+    assert solver_u_des == []
+    assert command_pub.messages == []
+
+
+def test_tick_without_targets_tracks_the_default_pose_when_enabled():
+    node, solver_u_des, command_pub, logger = _targetless_tick_node(True)
+
+    _MODULE.G1CBFNode._tick(node)
+
+    # With K = 1 and the measured pose at zero, the QP is asked to move
+    # straight to the default pose.
+    assert len(solver_u_des) == 1
+    assert solver_u_des[0] == pytest.approx(_MODULE.CONTROLLED_JOINT_DEFAULTS)
+    assert node.q_des_filtered == pytest.approx(
+        _MODULE.CONTROLLED_JOINT_DEFAULTS
+    )
+    assert node.q_des_filtered is not _MODULE.CONTROLLED_JOINT_DEFAULTS
+    assert len(command_pub.messages) == 1
+    assert len(logger.messages) == 1
+    # The fallback is not stored, so the first message still fills its
+    # missing joints from the measured pose.
+    assert node.q_des_latest is None
+
+
+def test_human_capsules_are_packed_into_the_pelvis_frame():
+    yaw = 0.6
+    pelvis_pose = SimpleNamespace(
+        position=np.array([1.0, -0.5, 0.8]),
+        quat=np.array([0.0, 0.0, math.sin(0.5 * yaw), math.cos(0.5 * yaw)]),
+    )
+    # 1 m along the pelvis x axis, so it lands at (1, 0, 0) in the pelvis
+    # frame.
+    ahead = pelvis_pose.position + np.array([math.cos(yaw), math.sin(yaw), 0.0])
+    rng = np.random.default_rng(0)
+    humans = [{'a': ahead, 'b': pelvis_pose.position, 'radius': 0.05}] + [
+        {'a': rng.normal(size=3), 'b': rng.normal(size=3), 'radius': 0.1}
+        for _ in range(2)
+    ]
+    node = _MODULE.G1CBFNode.__new__(_MODULE.G1CBFNode)
+
+    buf, mask = node._pack_human_capsules(pelvis_pose, humans)
+    buf = np.asarray(buf)
+
+    assert buf.shape == (_MODULE.N_HUMAN_CAPSULES, 7)
+    assert np.asarray(mask).tolist() == (
+        [True] * 3 + [False] * (_MODULE.N_HUMAN_CAPSULES - 3)
+    )
+    np.testing.assert_allclose(buf[0, :6], [1, 0, 0, 0, 0, 0], atol=1e-12)
+    for k, human in enumerate(humans):
+        np.testing.assert_allclose(
+            buf[k, :3], node._world_to_pelvis(human['a'], pelvis_pose),
+        )
+        np.testing.assert_allclose(
+            buf[k, 3:6], node._world_to_pelvis(human['b'], pelvis_pose),
+        )
+        assert buf[k, 6] == human['radius']
+    np.testing.assert_array_equal(buf[3:], 0.0)
+
+
+def test_human_capsules_beyond_the_cap_are_dropped_with_a_warning():
+    logger = _Logger()
+    node = SimpleNamespace(
+        _world_frame='world',
+        _tf_pose_lookup=SimpleNamespace(buffer=None),
+        get_logger=lambda: logger,
+        get_clock=lambda: SimpleNamespace(now=lambda: Time(seconds=5.0)),
+    )
+    msg = CapsuleArray()
+    msg.header.frame_id = 'world'
+    msg.header.stamp = Time(seconds=4.9).to_msg()
+    for k in range(_MODULE.N_HUMAN_CAPSULES + 3):
+        capsule = Capsule()
+        capsule.a.x = capsule.b.x = float(k)
+        capsule.b.z = 1.0
+        capsule.radius = 0.1
+        msg.capsules.append(capsule)
+
+    _MODULE.G1CBFNode._human_cb(node, msg)
+
+    assert len(node._human_capsules) == _MODULE.N_HUMAN_CAPSULES
+    assert node._human_capsules[-1]['a'][0] == _MODULE.N_HUMAN_CAPSULES - 1
+    assert any(
+        f'has {_MODULE.N_HUMAN_CAPSULES + 3} capsules' in message
+        for message in logger.messages
+    )
+
+
+def test_qp_external_rows_are_capped_by_max_active_pairs():
+    every_pair = _MODULE.N_EXTERNAL_ROBOT_BODIES * _MODULE.N_HUMAN_CAPSULES
+
+    assert _MODULE.external_pair_slot_count(385) == 385
+    assert _MODULE.external_pair_slot_count(10 * every_pair) == every_pair
+    assert _MODULE.external_pair_slot_count(0) == 1
+
+
+def test_active_pairs_message_lists_the_active_prefix():
+    publisher = _Publisher()
+    node = SimpleNamespace(active_pairs_pub=publisher)
+
+    _MODULE.G1CBFNode._publish_active_pairs(
+        node,
+        Time(seconds=3.0).to_msg(),
+        np.array([[0, 3], [1, 7], [2, 9]], dtype=np.int32),
+        np.array([True, True, False]),
+        np.array([0.25, 0.5, np.inf]),
+        np.array([[1, 0, 5, 1], [0, 0, 0, 0]], dtype=np.int32),
+        np.array([True, False]),
+        np.array([0.125, np.inf]),
+    )
+
+    msg = publisher.messages[0]
+    assert msg.header.frame_id == 'pelvis'
+    assert list(msg.robot_body_index) == [0, 1]
+    assert list(msg.human_capsule_index) == [3, 7]
+    assert list(msg.clearance) == [0.25, 0.5]
+    assert list(msg.internal_body_a_index) == [1]
+    assert list(msg.internal_sphere_a_index) == [0]
+    assert list(msg.internal_body_b_index) == [5]
+    assert list(msg.internal_sphere_b_index) == [1]
+    assert list(msg.internal_clearance) == [0.125]
 
 
 def test_workspace_state_does_not_disable_upper_cbf():

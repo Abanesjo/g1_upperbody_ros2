@@ -79,6 +79,9 @@
     <param from="$(find-pkg-share g1_cbf)/config/params.yaml"/>
     <param name="urdf_path" value="$(var urdf_file)"/>
     <param name="area_cbf" value="$(var area_cbf)"/>
+    <!-- Nothing in this launch publishes /upper_body_targets_unsafe; until a
+         source does, the CBF tracks the default pose so the barriers act. -->
+    <param name="default_pose_without_targets" value="true"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
     <remap from="/joint_commands_unsafe" to="/upper_body_targets_unsafe"/>
     <remap from="/joint_commands" to="/upper_body_targets"/>

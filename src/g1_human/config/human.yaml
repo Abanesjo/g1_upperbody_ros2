@@ -17,3 +17,13 @@ g1_human_node:
     sphere_interpolation_level: 0
     sphere_radius_gain: 1.0
     human_radius_scale: 1.0
+
+human_crowd_node:
+  ros__parameters:
+    # min_speed and max_speed are launch arguments of g1_human_crowd.launch.xml
+    max_pause_sec: 2.0          # pause at each waypoint, uniform in [0, this]
+    spawn_keepout_radius: 1.0    # nobody starts this close to the centre (the robot)
+    rate: 30.0                   # /human/colliders [Hz]
+    publish_viz: true
+    marker_rate: 10.0            # /human/collider_markers [Hz]
+    human_radius_scale: 1.0

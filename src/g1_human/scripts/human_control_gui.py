@@ -83,7 +83,12 @@ class HumanControlGui(QWidget):
         self._publish()
 
     def _build_ui(self):
-        self.setWindowTitle('Human Control')
+        # g1_human_manual.launch.py runs one GUI per human, each in its own
+        # namespace (human_0, human_1, ...).
+        namespace = self.node.get_namespace().strip('/')
+        self.setWindowTitle(
+            f'Human Control ({namespace})' if namespace else 'Human Control'
+        )
         main_layout = QVBoxLayout()
 
         pose_group = QGroupBox('World Pose')

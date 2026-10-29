@@ -6,6 +6,7 @@ from rclpy.time import Time
 from tf2_ros import Buffer, TransformException
 
 from g1_cbf.human_capsules import (
+    capsule_arrays,
     human_data_is_fresh,
     human_data_time,
     transform_capsule_array,
@@ -146,6 +147,39 @@ def test_empty_array_is_valid_without_tf_lookup():
     msg.header.frame_id = 'camera_optical'
 
     result = transform_capsule_array(msg, 'world', Buffer())
+    endpoints, radii = capsule_arrays(msg, 'world', Buffer())
 
     assert result.header.frame_id == 'world'
     assert not result.capsules
+    assert endpoints.shape == (0, 2, 3)
+    assert radii.shape == (0,)
+
+
+def test_capsule_arrays_transform_every_capsule_at_the_message_stamp():
+    yaw = 0.6
+    buffer = Buffer()
+    _set_transform(
+        buffer, 2, x=1.0, qz=math.sin(0.5 * yaw), qw=math.cos(0.5 * yaw),
+    )
+    msg = _message(frame='camera_optical')
+    second = Capsule()
+    second.a.x, second.a.y, second.a.z = (0.5, -0.5, 1.0)
+    second.b.z = 2.0
+    second.radius = 0.1
+    msg.capsules.append(second)
+
+    endpoints, radii = capsule_arrays(msg, 'world', buffer)
+
+    def world(x, y, z):
+        return (
+            1.0 + x * math.cos(yaw) - y * math.sin(yaw),
+            x * math.sin(yaw) + y * math.cos(yaw),
+            z,
+        )
+
+    assert endpoints.shape == (2, 2, 3)
+    assert endpoints[0, 0] == pytest.approx(world(1.0, 0.0, 0.0))
+    assert endpoints[0, 1] == pytest.approx(world(0.0, 1.0, 0.0))
+    assert endpoints[1, 0] == pytest.approx(world(0.5, -0.5, 1.0))
+    assert endpoints[1, 1] == pytest.approx(world(0.0, 0.0, 2.0))
+    assert radii.tolist() == [0.25, 0.1]

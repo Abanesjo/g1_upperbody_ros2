@@ -18,9 +18,9 @@ from tf2_ros import TransformException
 
 from g1_cbf.collider_viz import ColliderVisualizer
 from g1_cbf.human_capsules import (
+    capsule_arrays,
     human_data_is_fresh,
     human_data_time,
-    transform_capsule_array,
 )
 from g1_cbf.jax_kinematics import (
     CONTROLLED_JOINTS,
@@ -139,7 +139,7 @@ class G1CBFVizNode(Node):
 
     def _human_cb(self, msg: CapsuleArray):
         try:
-            msg_world = transform_capsule_array(
+            endpoints, radii = capsule_arrays(
                 msg,
                 self._world_frame,
                 self._tf_pose_lookup.buffer,
@@ -153,16 +153,14 @@ class G1CBFVizNode(Node):
             )
             return
 
-        capsules = []
-        for c in msg_world.capsules[:N_HUMAN_CAPSULES]:
-            capsules.append({
-                'a': np.array([c.a.x, c.a.y, c.a.z]),
-                'b': np.array([c.b.x, c.b.y, c.b.z]),
-                'radius': float(c.radius),
-            })
-        self._human_capsules = capsules
+        self._human_capsules = [
+            {'a': a, 'b': b, 'radius': float(radius)}
+            for (a, b), radius in zip(
+                endpoints[:N_HUMAN_CAPSULES], radii[:N_HUMAN_CAPSULES],
+            )
+        ]
         self._last_human_time = human_data_time(
-            msg_world.header.stamp,
+            msg.header.stamp,
             self.get_clock().now(),
         )
 
@@ -212,19 +210,23 @@ class G1CBFVizNode(Node):
         )
 
     def _human_capsules_for_viz(self, human_capsules_world):
-        capsules = []
         if not human_capsules_world:
-            return capsules
+            return []
         pelvis_pose = self._lookup_pelvis_pose()
         if pelvis_pose is None:
-            return capsules
-        for capsule in human_capsules_world:
-            capsules.append({
-                'a': self._world_to_pelvis(capsule['a'], pelvis_pose),
-                'b': self._world_to_pelvis(capsule['b'], pelvis_pose),
-                'radius': capsule['radius'],
-            })
-        return capsules
+            return []
+        # One batched transform; per point it costs milliseconds per tick
+        # with a crowd.
+        a_pelvis = self._world_to_pelvis(
+            np.array([c['a'] for c in human_capsules_world]), pelvis_pose,
+        )
+        b_pelvis = self._world_to_pelvis(
+            np.array([c['b'] for c in human_capsules_world]), pelvis_pose,
+        )
+        return [
+            {'a': a, 'b': b, 'radius': capsule['radius']}
+            for a, b, capsule in zip(a_pelvis, b_pelvis, human_capsules_world)
+        ]
 
     def _world_to_pelvis(self, point_world, pelvis_pose):
         return self._quat_rotate_np(

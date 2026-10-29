@@ -12,13 +12,16 @@ constexpr std::size_t AXIS_LINEAR_Y = 0;
 constexpr std::size_t AXIS_LINEAR_X = 1;
 constexpr std::size_t AXIS_ANGULAR_Z = 3;
 
-// Full stick deflection maps to the +-0.5 m/s linear limit.
-constexpr double LIN_X_SCALE = 0.5;
+// Full stick deflection maps to the edge of the policy's trained command range:
+// x -0.5 to 1.0 m/s (pushing forward and pulling back scale differently),
+// y +-0.5 m/s, yaw +-1 rad/s.
+constexpr double LIN_X_FORWARD_SCALE = 1.0;
+constexpr double LIN_X_REVERSE_SCALE = 0.5;
 constexpr double LIN_Y_SCALE = 0.5;
 constexpr double ANG_Z_SCALE = 1.0;
 
 constexpr double LIN_X_MIN = -0.5;
-constexpr double LIN_X_MAX = 0.5;
+constexpr double LIN_X_MAX = 1.0;
 constexpr double LIN_Y_MIN = -0.5;
 constexpr double LIN_Y_MAX = 0.5;
 constexpr double ANG_Z_MIN = -1.0;
@@ -56,8 +59,9 @@ class JoyCmdVelNode : public rclcpp::Node {
       return;
     }
 
+    const double axis_x = static_cast<double>(msg.axes[AXIS_LINEAR_X]);
     cmd.linear.x = std::clamp(
-        static_cast<double>(msg.axes[AXIS_LINEAR_X]) * LIN_X_SCALE,
+        axis_x * (axis_x >= 0.0 ? LIN_X_FORWARD_SCALE : LIN_X_REVERSE_SCALE),
         LIN_X_MIN, LIN_X_MAX);
     cmd.linear.y = std::clamp(
         static_cast<double>(msg.axes[AXIS_LINEAR_Y]) * LIN_Y_SCALE,

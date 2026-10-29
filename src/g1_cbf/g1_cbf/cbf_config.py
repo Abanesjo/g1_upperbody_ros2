@@ -9,6 +9,7 @@ Control u = (11,) joint velocities.
 Dynamics: z_dot = u  (f=0, g=I, relative degree 1).
 """
 
+import jax
 import jax.numpy as jnp
 
 from cbfpy import CBFConfig
@@ -96,9 +97,12 @@ class G1CollisionCBFConfig(CBFConfig):
                 human_half_lengths or [], human_radii or [],
                 sphere_interpolation_level,
             )
-            if len(human_counts) < N_HUMAN_CAPSULES:
-                human_counts.extend([1] * (N_HUMAN_CAPSULES - len(human_counts)))
-            self.human_sphere_counts = human_counts[:N_HUMAN_CAPSULES]
+            # The dimensions describe one human; every human in
+            # /human/colliders repeats them.
+            self.human_sphere_counts = [
+                human_counts[k % len(human_counts)] if human_counts else 1
+                for k in range(N_HUMAN_CAPSULES)
+            ]
             self.sphere_counts_jnp = jnp.array(self.sphere_counts)
             self.human_sphere_counts_jnp = jnp.array(self.human_sphere_counts)
             self.max_robot_spheres = max(self.sphere_counts)
@@ -247,28 +251,25 @@ class G1CollisionCBFConfig(CBFConfig):
             )
             barriers.append(phi)
 
-        h_a = human_capsules[:, :3]
-        h_b = human_capsules[:, 3:6]
-        h_r = human_capsules[:, 6]
+        # One vectorized barrier per external slot, so tracing and compiling
+        # do not grow with external_pair_slots (7 per human capsule when the
+        # broadphase filter is off).
+        i = active_pair_indices[:, 0]
+        j = active_pair_indices[:, 1]
+        margin = jnp.where(
+            i == HEAD_COLLIDER_BODY_INDEX,
+            self.external_torso_margin_phi,
+            self.external_margin_phi,
+        )
+        external = jax.vmap(self._capsule_barrier)(
+            RADII[i], a_robot[i], b_robot[i],
+            human_capsules[j, 6], human_capsules[j, :3],
+            human_capsules[j, 3:6],
+            margin,
+        )
+        external = jnp.where(active_pair_mask, external, 1.0)
 
-        for slot in range(self.external_pair_slots):
-            i = active_pair_indices[slot, 0]
-            j = active_pair_indices[slot, 1]
-            margin = jnp.where(
-                i == HEAD_COLLIDER_BODY_INDEX,
-                self.external_torso_margin_phi,
-                self.external_margin_phi,
-            )
-            phi = self._capsule_barrier(
-                RADII[i], a_robot[i], b_robot[i],
-                h_r[j], h_a[j], h_b[j],
-                margin,
-            )
-            barriers.append(jnp.where(
-                active_pair_mask[slot], phi, 1.0,
-            ))
-
-        barriers.append(self._head_circle_barrier(
+        head = self._head_circle_barrier(
             a_robot[HEAD_COLLIDER_BODY_INDEX],
             pelvis_position,
             pelvis_quat,
@@ -276,9 +277,11 @@ class G1CollisionCBFConfig(CBFConfig):
             world_circle_radius,
             head_collider_radius,
             head_circle_enabled,
-        ))
+        )
 
-        return jnp.array(barriers)
+        return jnp.concatenate([
+            jnp.stack(barriers), external, head[None],
+        ])
 
     # ------------------------------------------------------------------
     # Sphere mode

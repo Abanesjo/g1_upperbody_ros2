@@ -1,0 +1,30 @@
+<launch>
+  <!-- A crowd of simulated humans walking at random in a square, all
+       simulated by one human_crowd_node and published together on
+       /human/colliders. The workspace circle in g1_cbf/config/params.yaml
+       (radius 5*sqrt(2)) passes through the corners of the default 10 m
+       square around the origin. -->
+  <arg name="use_sim_time" default="false"/>
+  <arg name="num_humans" default="20" description="Number of humans; the CBF nodes take up to 100"/>
+  <arg name="side_length" default="10.0" description="Side of the square the humans walk in [m]"/>
+  <arg name="center_x" default="0.0" description="World x of the centre of the square [m]"/>
+  <arg name="center_y" default="0.0" description="World y of the centre of the square [m]"/>
+  <arg name="seed" default="0" description="Random seed of the crowd; -1 draws a different crowd on every launch"/>
+  <!-- Each human draws a new walking speed in [min_speed, max_speed] at every
+       waypoint. The default max is the robot's reverse and lateral speed
+       limit. -->
+  <arg name="min_speed" default="0.4" description="Slowest walking speed [m/s]"/>
+  <arg name="max_speed" default="0.5" description="Fastest walking speed [m/s]"/>
+
+  <node pkg="g1_human" exec="human_crowd_node" name="human_crowd_node" output="screen">
+    <param from="$(find-pkg-share g1_human)/config/human.yaml"/>
+    <param name="num_humans" value="$(var num_humans)"/>
+    <param name="side_length" value="$(var side_length)"/>
+    <param name="center_x" value="$(var center_x)"/>
+    <param name="center_y" value="$(var center_y)"/>
+    <param name="seed" value="$(var seed)"/>
+    <param name="min_speed" value="$(var min_speed)"/>
+    <param name="max_speed" value="$(var max_speed)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

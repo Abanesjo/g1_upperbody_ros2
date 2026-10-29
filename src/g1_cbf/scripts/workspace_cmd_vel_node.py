@@ -199,6 +199,7 @@ class WorkspaceCmdVelNode(Node):
         self.declare_parameter('center_position_deadzone', 0.05)
         self.declare_parameter('center_yaw_deadzone_deg', 15.0)
         self.declare_parameter('max_linear_x', 0.5)
+        self.declare_parameter('max_reverse_x', 0.5)
         self.declare_parameter('max_linear_y', 0.5)
         self.declare_parameter('max_angular_z', 1.0)
         self.declare_parameter('workspace_cbf_available', True)
@@ -301,6 +302,7 @@ class WorkspaceCmdVelNode(Node):
             float(value('center_yaw_deadzone_deg'))
         )
         self._max_linear_x = float(value('max_linear_x'))
+        self._max_reverse_x = float(value('max_reverse_x'))
         self._max_linear_y = float(value('max_linear_y'))
         self._max_angular_z = float(value('max_angular_z'))
         self._workspace_cbf_available = bool(
@@ -318,6 +320,7 @@ class WorkspaceCmdVelNode(Node):
             'path_resolution': self._path_resolution,
             'path_heading_kp': self._path_heading_kp,
             'max_linear_x': self._max_linear_x,
+            'max_reverse_x': self._max_reverse_x,
             'max_linear_y': self._max_linear_y,
             'max_angular_z': self._max_angular_z,
         }
@@ -464,7 +467,7 @@ class WorkspaceCmdVelNode(Node):
             self._publish_planar_reference(self._follower.target)
             velocity_body = workspace_to_body(velocity_ws, yaw)
             cmd.linear.x = float(np.clip(
-                velocity_body[0], -self._max_linear_x, self._max_linear_x
+                velocity_body[0], -self._max_reverse_x, self._max_linear_x
             ))
             cmd.linear.y = float(np.clip(
                 velocity_body[1], -self._max_linear_y, self._max_linear_y
@@ -548,7 +551,7 @@ class WorkspaceCmdVelNode(Node):
 
         cmd = Twist()
         cmd.linear.x = float(np.clip(
-            desired_body[0], -self._max_linear_x, self._max_linear_x
+            desired_body[0], -self._max_reverse_x, self._max_linear_x
         ))
         cmd.linear.y = float(np.clip(
             desired_body[1], -self._max_linear_y, self._max_linear_y
