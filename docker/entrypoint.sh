@@ -23,6 +23,8 @@ export XLA_PYTHON_CLIENT_PREALLOCATE="false"
 export JAX_ENABLE_X64=1
 if [ "$(uname -m)" = "aarch64" ]; then
     export JAX_PLATFORMS="cpu"
+    export XLA_FLAGS="--xla_cpu_multi_thread_eigen=false"
+    export OPENBLAS_NUM_THREADS=1
 fi
 EOF
 fi
