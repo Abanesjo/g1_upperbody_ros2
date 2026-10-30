@@ -1,4 +1,5 @@
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <string>
@@ -11,6 +12,28 @@
 namespace {
 
 constexpr char LOOPBACK_INTERFACE[] = "lo";
+
+// Lets at most rate_hz messages per second of simulation time through. A
+// stamp that jumps backwards, as when the simulator resets, passes at once.
+class SimTimeRateLimiter {
+ public:
+  explicit SimTimeRateLimiter(double rate_hz)
+      : period_ns_(rate_hz > 0.0 ? static_cast<std::int64_t>(1e9 / rate_hz)
+                                 : 0) {}
+
+  bool Due(const g1_bridge::TimeStamp &stamp) {
+    const std::int64_t now_ns = stamp.sec * 1000000000LL + stamp.nanosec;
+    if (now_ns < next_ns_ && now_ns + period_ns_ >= next_ns_) {
+      return false;
+    }
+    next_ns_ = now_ns + period_ns_;
+    return true;
+  }
+
+ private:
+  std::int64_t period_ns_;
+  std::int64_t next_ns_{0};
+};
 
 }  // namespace
 
@@ -27,6 +50,15 @@ class SimRelayNode : public rclcpp::Node {
                                              LOOPBACK_INTERFACE);
     const auto domain_id =
         static_cast<int>(this->declare_parameter<int>("domain_id", 0));
+    // Every node on simulation time wakes on each /clock, and every TF
+    // listener on each transform made from /pose/pelvis. Forwarding them at
+    // the simulator's full rate saturates the Jetson. 0 forwards everything.
+    // /clock has to stay above the fastest ROS timer on simulation time, or
+    // that timer slows down (the bridge's lowcmd timer runs on wall time).
+    clock_limiter_ = std::make_unique<SimTimeRateLimiter>(
+        this->declare_parameter<double>("clock_rate", 250.0));
+    pelvis_pose_limiter_ = std::make_unique<SimTimeRateLimiter>(
+        this->declare_parameter<double>("pelvis_pose_rate", 100.0));
 
     clock_pub_ = this->create_publisher<rosgraph_msgs::msg::Clock>(
         "/clock", rclcpp::ClockQoS());
@@ -60,7 +92,7 @@ class SimRelayNode : public rclcpp::Node {
  private:
   // Runs on an SDK thread.
   void ClockCallback(const g1_bridge::TimeStamp &stamp) {
-    if (ros_shutting_down_->load()) {
+    if (ros_shutting_down_->load() || !clock_limiter_->Due(stamp)) {
       return;
     }
     try {
@@ -77,7 +109,7 @@ class SimRelayNode : public rclcpp::Node {
 
   // Runs on an SDK thread.
   void PelvisPoseCallback(const g1_bridge::StampedPose &pose) {
-    if (ros_shutting_down_->load()) {
+    if (ros_shutting_down_->load() || !pelvis_pose_limiter_->Due(pose.stamp)) {
       return;
     }
     try {
@@ -103,6 +135,9 @@ class SimRelayNode : public rclcpp::Node {
   rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr
       pelvis_pose_pub_;
+  // Each is used by one SDK thread.
+  std::unique_ptr<SimTimeRateLimiter> clock_limiter_;
+  std::unique_ptr<SimTimeRateLimiter> pelvis_pose_limiter_;
   std::shared_ptr<std::atomic_bool> ros_shutting_down_{
       std::make_shared<std::atomic_bool>(false)};
   rclcpp::Clock steady_clock_{RCL_STEADY_TIME};

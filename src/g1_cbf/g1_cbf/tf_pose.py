@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from rclpy.duration import Duration
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -57,7 +58,23 @@ class TfPoseLookup:
         self._timeout = Duration(seconds=max(0.0, float(timeout_sec)))
         self._future_tolerance_sec = max(0.0, float(future_tolerance_sec))
         self._buffer = Buffer()
-        self._listener = TransformListener(self._buffer, node)
+        # On a thread of its own, with a private node (None): on the owning
+        # node's executor, a control tick lets only a few /tf messages through
+        # per cycle, so the queue filled and every lookup returned a pose as
+        # old as the queue is long. That is 0.5 s at depth 100, which trips
+        # the stale gates. The small depth bounds the age if this thread ever
+        # falls behind. Do not pass the owning node with spin_thread: it would
+        # then be spun by two executors, control ticks included.
+        self._listener = TransformListener(
+            self._buffer,
+            None,
+            spin_thread=True,
+            qos=QoSProfile(
+                depth=10,
+                durability=DurabilityPolicy.VOLATILE,
+                history=HistoryPolicy.KEEP_LAST,
+            ),
+        )
 
     @property
     def buffer(self):

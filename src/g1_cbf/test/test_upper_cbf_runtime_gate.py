@@ -5,6 +5,7 @@ from types import MethodType, SimpleNamespace
 
 import numpy as np
 import pytest
+from g1_cbf import tf_pose
 from g1_cbf_msg.msg import Capsule, CapsuleArray, WorkspaceState
 from rclpy.time import Time
 from std_msgs.msg import Bool
@@ -258,6 +259,26 @@ def test_tf_pose_future_stamp_maps_to_infinite_age_for_fail_closed_gates():
     assert lookup.age_sec(slightly_future_pose) == 0.0
 
 
+def test_tf_listener_never_runs_on_the_control_nodes_executor(monkeypatch):
+    # On the owning node's executor, control ticks starved /tf and lookups
+    # returned poses 0.5 s old. spin_thread with the owning node would instead
+    # spin the whole node, ticks included, on a second executor.
+    calls = []
+    monkeypatch.setattr(
+        tf_pose,
+        'TransformListener',
+        lambda buffer, node, **kwargs: calls.append((node, kwargs)),
+    )
+
+    tf_pose.TfPoseLookup(object(), 'world', 'pelvis', 0.0)
+
+    assert len(calls) == 1
+    node, kwargs = calls[0]
+    assert node is None
+    assert kwargs['spin_thread'] is True
+    assert kwargs['qos'].depth <= 10
+
+
 def test_cbf_target_cannot_wind_up_past_the_trained_range():
     waist_pitch = _MODULE.CONTROLLED_JOINTS.index('waist_pitch_joint')
     lower, upper = _MODULE.CONTROLLED_JOINT_TARGET_LIMITS[waist_pitch]
@@ -499,6 +520,7 @@ def _targetless_tick_node(default_pose_without_targets):
         q_des_filtered=None,
         q_cbf_target=None,
         _cbf_enabled=True,
+        _default_pose_logged=False,
         _workspace_state=(np.zeros(2), False, 0),
         cbf=FakeCBF(),
         cmd_pub=command_pub,

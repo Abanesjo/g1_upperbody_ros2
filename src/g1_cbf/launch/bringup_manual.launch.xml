@@ -6,19 +6,25 @@
   </arg>
   <arg name="urdf_file" default="$(find-pkg-share g1_description)/urdf/g1_29_$(var hand_type).urdf"/>
   <arg name="rviz" default="false"/>
-  <arg name="ghost" default="true"/>
+  <arg name="ghost" default="$(var rviz)" description="Ghost robot; only display uses it, so it follows rviz"/>
+  <arg name="rt_prefix" default="chrt -r 20" description="Prefix of the control nodes below; empty runs them at normal priority"/>
   <arg name="bridge" default="true"/>
   <arg name="simulator" default="false"/>
   <arg name="network_interface" default="lo" description="Network interface unitree_sdk2 uses to reach the robot, or lo for a unitree_mujoco on this machine"/>
   <arg name="mujoco" default="true"/>
   <arg name="use_sim_time" default="false"/>
-  <arg name="viz" default="true"/>
+  <arg name="viz" default="$(var rviz)" description="RViz markers (g1_cbf_viz_node, pelvis_circle_publisher_node); only display uses them, so they follow rviz"/>
   <arg name="viz_rate" default="100.0"/>
   <arg name="wbc" default="false"/>
   <arg name="gravity" default="true"/>
   <arg name="policy_type" default="gru_mlp"/>
   <arg name="area_cbf" default="true"/>
   <arg name="initial_mode" default="neutral"/>
+
+  <!-- Keep all of these together: priority for g1_cbf_node alone starves the
+       bridge, and cmd_vel_cbf_node outside it falls behind /clock. -->
+  <let name="launch-prefix" value="$(var rt_prefix)"/>
+  <let name="launch-prefix-filter" value=".*(g1_cbf_node|cmd_vel_cbf_node|g1_bridge_node|g1_rl_deploy_node|g1_orchestrator_node)"/>
 
   <!-- ==================== g1_bridge ==================== -->
   <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">

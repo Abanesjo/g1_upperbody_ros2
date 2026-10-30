@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -90,6 +91,17 @@ class G1BridgeNode : public rclcpp::Node {
                                              LOOPBACK_INTERFACE);
     const auto domain_id =
         static_cast<int>(this->declare_parameter<int>("domain_id", 0));
+    // Limits /joint_states and /imu only; lowcmd and gravity feed-forward run
+    // on every lowstate. Each subscriber, most of them Python, wakes on every
+    // message, and at the full lowstate rate that starves the control loops
+    // on the Jetson. 0 publishes every lowstate.
+    const auto state_publish_rate =
+        this->declare_parameter<double>("state_publish_rate", 200.0);
+    if (state_publish_rate > 0.0) {
+      state_publish_period_ = std::chrono::duration_cast<
+          std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(1.0 / state_publish_rate));
+    }
     gravity_enabled_ = g1_bridge::GravityFeedforwardEnabled(wbc_, gravity);
 
     if (gravity_enabled_) {
@@ -182,8 +194,8 @@ class G1BridgeNode : public rclcpp::Node {
           RobotStateCallback(state);
         });
 
-    republish_timer_ = rclcpp::create_timer(
-        this, this->get_clock(),
+    // Wall time, so the 500 Hz output does not depend on the rate of /clock.
+    republish_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(2), [this] { PublishLowCmd(); });
 
     RCLCPP_INFO(this->get_logger(), "G1 bridge node started");
@@ -323,6 +335,9 @@ class G1BridgeNode : public rclcpp::Node {
         last_lowstate_time_ = std::chrono::steady_clock::now();
         has_state_ = true;
       }
+      if (!StatePublishDue()) {
+        return;
+      }
       joint_states_pub_->publish(joint_state);
 
       sensor_msgs::msg::Imu imu;
@@ -343,6 +358,17 @@ class G1BridgeNode : public rclcpp::Node {
       RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                             "Failed to forward lowstate: %s", e.what());
     }
+  }
+
+  // Runs on an SDK thread.
+  bool StatePublishDue() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next_state_publish_) {
+      return false;
+    }
+    next_state_publish_ =
+        std::max(next_state_publish_ + state_publish_period_, now);
+    return true;
   }
 
   void JointCommandSafeCallback(
@@ -466,6 +492,8 @@ class G1BridgeNode : public rclcpp::Node {
   // Used by the SDK lowstate thread only.
   std::vector<double> measured_positions_;
   std::unique_ptr<g1_bridge::GravityCompensation> gravity_compensation_;
+  std::chrono::steady_clock::duration state_publish_period_{};
+  std::chrono::steady_clock::time_point next_state_publish_{};
 
   // Written by the SDK lowstate thread, read by the ROS callbacks.
   std::mutex robot_state_mutex_;

@@ -363,6 +363,12 @@ class G1CBFNode(Node):
         )
         self._human_capsules = []
         self._last_human_time = None
+        self._default_pose_logged = False
+        self._no_internal_pairs = (
+            jnp.zeros((self._internal_pair_slots, 4), dtype=jnp.int32),
+            jnp.zeros(self._internal_pair_slots, dtype=bool),
+            jnp.full(self._internal_pair_slots, jnp.inf, dtype=jnp.float64),
+        )
 
         # QoS: best-effort, volatile, depth 1
         sensor_qos = QoSProfile(
@@ -548,12 +554,14 @@ class G1CBFNode(Node):
             # Nothing has published targets yet. Track the policy's default
             # pose so the barriers act from the start. q_des_latest stays
             # empty, so the first message still fills its missing joints
-            # from q_ctrl.
-            self.get_logger().info(
-                'No upper-body targets received yet; tracking the default '
-                'pose until they arrive',
-                once=True,
-            )
+            # from q_ctrl. The flag is not logger's once=True, which inspects
+            # the call stack on every tick.
+            if not self._default_pose_logged:
+                self._default_pose_logged = True
+                self.get_logger().info(
+                    'No upper-body targets received yet; tracking the '
+                    'default pose until they arrive',
+                )
             q_des = CONTROLLED_JOINT_DEFAULTS
 
         human_capsules = self._active_human_capsules()
@@ -592,14 +600,16 @@ class G1CBFNode(Node):
         dq_ref = K * (self.q_des_filtered - self.q_cbf_target)
         dq_ref = np.clip(dq_ref, -max_vel, max_vel)
 
-        # Pack for JAX — evaluate barriers at actual or target state
+        # Pack for JAX — evaluate barriers at actual or target state. Jitted
+        # functions take NumPy arrays directly; going through jnp.array first
+        # costs an eager JAX call per argument, most of the tick on the Jetson.
         if self.get_parameter('evaluate_at_actual').value:
             z_np = self.q_ctrl
         else:
             z_np = self.q_cbf_target
-        z = jnp.array(z_np, dtype=jnp.float64)
-        u_des = jnp.array(dq_ref, dtype=jnp.float64)
-        q_legs_jnp = jnp.array(self.q_legs, dtype=jnp.float64)
+        z = np.asarray(z_np, dtype=np.float64)
+        u_des = np.asarray(dq_ref, dtype=np.float64)
+        q_legs_jnp = np.asarray(self.q_legs, dtype=np.float64)
         human_caps, human_mask = self._pack_human_capsules(
             pelvis_pose,
             human_capsules,
@@ -702,10 +712,7 @@ class G1CBFNode(Node):
                 'external human CBF disabled for this tick',
                 throttle_duration_sec=2.0,
             )
-            return (
-                jnp.array(buf, dtype=jnp.float64),
-                jnp.array(mask, dtype=bool),
-            )
+            return buf, mask
         if count:
             # One batched transform: a per-point loop costs milliseconds of
             # the tick once several humans are present.
@@ -718,10 +725,7 @@ class G1CBFNode(Node):
             )
             buf[:count, 6] = [c['radius'] for c in capsules]
             mask[:count] = True
-        return (
-            jnp.array(buf, dtype=jnp.float64),
-            jnp.array(mask, dtype=bool),
-        )
+        return buf, mask
 
     def _world_to_pelvis(self, point_world, pelvis_pose):
         return self._quat_rotate_np(
@@ -830,15 +834,15 @@ class G1CBFNode(Node):
             q_legs,
             human_caps,
             human_mask,
-            jnp.array(
+            np.asarray(
                 self.get_parameter('external_activation_distance').value,
-                dtype=jnp.float64,
+                dtype=np.float64,
             ),
-            jnp.array(
+            np.asarray(
                 self.get_parameter('external_always_keep_nearest').value,
-                dtype=jnp.int32,
+                dtype=np.int32,
             ),
-            jnp.array(
+            np.asarray(
                 self.get_parameter('external_filter_enabled').value,
                 dtype=bool,
             ),
@@ -846,11 +850,7 @@ class G1CBFNode(Node):
 
     def _select_active_internal_pairs(self, z, q_legs):
         if self._select_active_internal_pairs_jit is None:
-            return (
-                jnp.zeros((self._internal_pair_slots, 4), dtype=jnp.int32),
-                jnp.zeros(self._internal_pair_slots, dtype=bool),
-                jnp.full(self._internal_pair_slots, jnp.inf, dtype=jnp.float64),
-            )
+            return self._no_internal_pairs
         return self._select_active_internal_pairs_jit(
             z,
             q_legs,
@@ -892,18 +892,18 @@ class G1CBFNode(Node):
             else np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         )
         return (
-            jnp.array(pelvis_position, dtype=jnp.float64),
-            jnp.array(pelvis_quat, dtype=jnp.float64),
-            jnp.array(workspace_center_xy, dtype=jnp.float64),
-            jnp.array(
+            np.asarray(pelvis_position, dtype=np.float64),
+            np.asarray(pelvis_quat, dtype=np.float64),
+            np.asarray(workspace_center_xy, dtype=np.float64),
+            np.asarray(
                 self.get_parameter('world_circle_radius').value,
-                dtype=jnp.float64,
+                dtype=np.float64,
             ),
-            jnp.array(
+            np.asarray(
                 self.get_parameter('head_collider_radius').value,
-                dtype=jnp.float64,
+                dtype=np.float64,
             ),
-            jnp.array(enabled, dtype=bool),
+            np.asarray(enabled, dtype=bool),
         )
 
     def _publish_active_pairs(self, stamp, pair_indices, pair_mask, clearances,
