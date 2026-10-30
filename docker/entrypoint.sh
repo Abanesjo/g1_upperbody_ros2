@@ -21,7 +21,9 @@ export ZENOH_ROUTER_CONFIG_URI=/workspace/ros2_ws/src/RMW_ZENOH_ROUTER_CONFIG.js
 alias mujoco='export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu'
 export XLA_PYTHON_CLIENT_PREALLOCATE="false"
 export JAX_ENABLE_X64=1
-export JAX_PLATFORM_NAME="cpu"
+if [ "$(uname -m)" = "aarch64" ]; then
+    export JAX_PLATFORMS="cpu"
+fi
 EOF
 fi
 

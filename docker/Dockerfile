@@ -50,7 +50,13 @@ ENV PIP_CONSTRAINT=/etc/pip-constraints.txt
 # into /usr/local, which Python searches first.
 RUN pip3 install --ignore-installed --no-deps scipy==1.13.1
 RUN pip3 install numpy==1.26.4 opencv-contrib-python==4.7.0.72
-RUN pip3 install osqp "jax[cuda12]==0.6.2" qpax cbfpy
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \
+    if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then \
+        jax_spec="jax==0.6.2"; \
+    else \
+        jax_spec="jax[cuda12]==0.6.2"; \
+    fi && \
+    pip3 install osqp "$jax_spec" qpax cbfpy
 
 COPY dependencies /workspace/dependencies
 

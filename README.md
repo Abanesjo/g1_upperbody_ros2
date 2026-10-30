@@ -32,6 +32,12 @@ cd docker
 docker compose up --build
 ```
 
+If you are running on the Unitree G1's in-built computer or a jetson, build instead using: 
+
+```
+docker compose -f docker-compose-jetson.yaml up --build
+```
+
 Before proceeding, it's advised to wait until the container finishes compiling the ros packages, which is when you see the message
 
  **"g1_upperbody_ros2  | Summary: 11 packages finished [27.7s]"**
