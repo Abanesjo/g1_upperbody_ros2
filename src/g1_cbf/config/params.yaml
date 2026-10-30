@@ -26,7 +26,7 @@ g1_cbf_node:
     # QP rows for robot-human pairs, filled with the nearest present pairs:
     # 385 holds every pair of five humans (7 robot bodies x 55 capsules).
     # Sphere mode turns each pair into up to 16 rows; use about 16 there.
-    external_max_active_pairs: 77
+    external_max_active_pairs: 385
     external_always_keep_nearest: 4
     external_torso_margin_phi: 0.1
     external_torso_gamma: 0.3
@@ -101,7 +101,7 @@ cmd_vel_cbf_node:
     dt: 0.02
     area_cbf: true
     cmd_vel_cbf_enabled: true
-    external_margin_phi: 1.0
+    external_margin_phi: 0.4
     external_gamma: 2.0
     head_collider_radius: 0.3
     world_circle_radius: 7.0710678  # 5*sqrt(2): through the corners of the 10 m crowd square
